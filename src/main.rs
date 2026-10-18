@@ -3,6 +3,8 @@
 
 mod instance;
 mod java;
+mod launch;
+mod modplatform;
 mod settings;
 
 use crate::instance::discover_instances;
