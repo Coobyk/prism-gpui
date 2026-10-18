@@ -2,6 +2,7 @@
 // Modules: instance discovery, global settings, GPUI shell.
 
 mod instance;
+mod java;
 mod settings;
 
 use crate::instance::discover_instances;
@@ -16,6 +17,7 @@ use std::path::PathBuf;
 struct MainWindow {
     title: SharedString,
     instances: Vec<String>,
+    java_count: usize,
     data_root: PathBuf,
     theme: String,
 }
@@ -62,7 +64,14 @@ impl Render for MainWindow {
                             .ml_4()
                             .text_sm()
                             .text_color(rgb(0xa6adc8))
-                            .child(format!("{} instances", self.instances.len())),
+                            .child(format!("{} instances", self.instances.len()))
+                    .child(
+                        div()
+                            .ml_4()
+                            .text_sm()
+                            .text_color(rgb(0xa6adc8))
+                            .child(format!("{} java", self.java_count)),
+                    ),
                     ),
             )
             .child(
@@ -91,6 +100,7 @@ fn main() {
     let settings = GlobalSettings::load(&root);
     let instances = discover_instances(&root);
     let instance_names: Vec<String> = instances.iter().map(|i| i.name.clone()).collect();
+    let java_count = java::discover_java(&root).len();
     let theme = settings.theme.clone();
 
     Application::new().run(move |cx: &mut App| {
@@ -111,6 +121,7 @@ fn main() {
                 cx.new(|_| MainWindow {
                     title: "Prism Launcher".into(),
                     instances: names,
+                    java_count: java_count,
                     data_root: root,
                     theme,
                 })
