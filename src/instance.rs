@@ -95,4 +95,23 @@ mod tests {
         assert_eq!(m.get("InstanceType").unwrap(), "OneSix");
         assert_eq!(m.get("MinMemAlloc").unwrap(), "512");
     }
+
+    #[test]
+    fn discover_temp() {
+        use tempfile::tempdir;
+        let td = tempdir().unwrap();
+        let root = td.path();
+        let inst = root.join("instances").join("TestInst");
+        std::fs::create_dir_all(&inst).unwrap();
+        std::fs::write(
+            inst.join("instance.cfg"),
+            "[General]\nInstanceType=OneSix\nMinMemAlloc=256\nMaxMemAlloc=1024\n",
+        )
+        .unwrap();
+        let found = discover_instances(root);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "TestInst");
+        assert_eq!(found[0].min_mem, 256);
+        assert_eq!(found[0].max_mem, 1024);
+    }
 }
