@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 gpui = "0.2.2"
+dirs = "5"
 
 [profile.dev]
 opt-level = 1
