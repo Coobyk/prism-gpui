@@ -70,3 +70,73 @@ fn ureq_get(url: &str) -> Result<String, ()> {
         .map_err(|_| ())?;
     resp.into_string().map_err(|_| ())
 }
+
+#[derive(Deserialize)]
+pub struct VersionInfo {
+    pub version_number: String,
+    pub game_versions: Vec<String>,
+    pub loaders: Vec<String>,
+    pub files: Vec<VersionFile>,
+}
+
+#[derive(Deserialize)]
+pub struct VersionFile {
+    pub url: String,
+    pub filename: String,
+    #[serde(default)]
+    pub primary: bool,
+}
+
+impl Modrinth {
+    /// List versions for a project, optionally filtered by loader and game version.
+    pub fn versions(
+        &self,
+        slug: &str,
+        loader: Option<&str>,
+        game_version: Option<&str>,
+    ) -> Result<Vec<VersionInfo>, String> {
+        let mut url = format!("https://api.modrinth.com/v2/project/{slug}/version");
+        let mut params = Vec::new();
+        if let Some(l) = loader {
+            params.push(format!("loaders=[\"{l}\"]"));
+        }
+        if let Some(g) = game_version {
+            params.push(format!("game_versions=[\"{g}\"]"));
+        }
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+        let body = ureq::get(&url)
+            .set("User-Agent", "prism-gpui/0.1 (github.com/Coobyk/prism-gpui)")
+            .call()
+            .map_err(|e| e.to_string())?
+            .into_string()
+            .map_err(|e| e.to_string())?;
+        serde_json::from_str(&body).map_err(|e| e.to_string())
+    }
+
+    /// Download a version's primary file into `dest_dir`; returns the written path.
+    pub fn download_version_file(
+        &self,
+        version: &VersionInfo,
+        dest_dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf, String> {
+        let file = version
+            .files
+            .iter()
+            .find(|f| f.primary)
+            .or_else(|| version.files.first())
+            .ok_or("version has no files")?;
+        std::fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
+        let dest = dest_dir.join(&file.filename);
+        let resp = ureq::get(&file.url)
+            .set("User-Agent", "prism-gpui/0.1 (github.com/Coobyk/prism-gpui)")
+            .call()
+            .map_err(|e| e.to_string())?;
+        let mut reader = resp.into_reader();
+        let mut out = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+        std::io::copy(&mut reader, &mut out).map_err(|e| e.to_string())?;
+        Ok(dest)
+    }
+}
