@@ -21,6 +21,7 @@ mod news;
 mod theme;
 mod pack;
 mod settings;
+mod skin;
 mod ui;
 mod updater;
 mod widgets;
@@ -283,6 +284,28 @@ impl Render for MainWindow {
                             .child("News")
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 ui::open_news(this.theme, cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("skin")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Skin")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let account = crate::accounts::AccountStore::load(&this.data_root)
+                                    .active_account()
+                                    .cloned();
+                                let (uuid, name) = match account {
+                                    Some(a) => (Some(a.uuid), a.username),
+                                    None => (None, "no account".to_string()),
+                                };
+                                ui::open_skin(uuid, name, this.theme, cx);
                             })),
                     )
                     .child(

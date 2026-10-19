@@ -958,3 +958,123 @@ pub fn open_screenshots(
     )
     .ok()
 }
+
+// ---- Skin viewer window ----
+
+pub struct SkinView {
+    uuid: Option<String>,
+    username: SharedString,
+    image: Option<Arc<Image>>,
+    status: SharedString,
+    theme: Theme,
+}
+
+impl SkinView {
+    pub fn new(
+        uuid: Option<String>,
+        username: String,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut v = Self {
+            uuid: uuid.clone(),
+            username: username.into(),
+            image: None,
+            status: "Loading skin…".into(),
+            theme,
+        };
+        if let Some(uuid) = uuid {
+            cx.spawn(async move |this, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { crate::skin::SkinService::body_bytes(&uuid) })
+                    .await;
+                this.update(cx, |this, cx| {
+                    match result {
+                        Ok(bytes) => {
+                            this.image =
+                                Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes)));
+                            this.status = "Loaded".into();
+                        }
+                        Err(e) => this.status = format!("Failed: {e}").into(),
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        } else {
+            v.status = "No account signed in".into();
+        }
+        v
+    }
+}
+
+impl Render for SkinView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let content = match self.image.clone() {
+            Some(image) => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(img(image).h(px(480.)))
+                .into_any_element(),
+            None => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(theme.subtext))
+                .child(self.status.clone())
+                .into_any_element(),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .h(px(36.0))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(self.username.clone())
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
+            )
+            .child(content)
+    }
+}
+
+pub fn open_skin(
+    uuid: Option<String>,
+    username: String,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<SkinView>> {
+    let bounds = Bounds::centered(None, size(px(420.), px(600.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some(format!("Skin — {username}").into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|cx| SkinView::new(uuid.clone(), username.clone(), theme, cx)),
+    )
+    .ok()
+}

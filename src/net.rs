@@ -107,6 +107,19 @@ pub fn get_string(url: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+/// GET a URL as raw bytes.
+pub fn get_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::new();
+    agent()
+        .get(url)
+        .call()
+        .map_err(|e| e.to_string())?
+        .into_reader()
+        .read_to_end(&mut buf)
+        .map_err(|e| e.to_string())?;
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
