@@ -3,7 +3,7 @@
 use crate::fs;
 use crate::theme::Theme;
 use gpui::{
-    App, Bounds, Context, IntoElement, ParentElement, Render, SharedString, Styled,
+    App, Bounds, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
 };
 use std::path::{Path, PathBuf};
@@ -212,4 +212,209 @@ pub fn open_instance(name: &str, dir: &Path, theme: Theme, cx: &mut App) -> Opti
         )
         .ok()?;
     Some(handle)
+}
+
+// ---- New instance window ----
+
+use crate::instance::create_instance;
+use crate::theme::ThemeMode;
+use crate::widgets::text_input::TextInput;
+
+pub struct NewInstanceView {
+    name_input: Entity<TextInput>,
+    version_input: Entity<TextInput>,
+    status: SharedString,
+    theme: Theme,
+    data_root: PathBuf,
+}
+
+impl NewInstanceView {
+    pub fn new(data_root: PathBuf, theme: Theme, cx: &mut Context<Self>) -> Self {
+        let name_input = cx.new(|cx| TextInput::new("Instance name", cx));
+        let version_input = cx.new(|cx| TextInput::new("Minecraft version (e.g. 1.21.1)", cx));
+        Self {
+            name_input,
+            version_input,
+            status: "Ready".into(),
+            theme,
+            data_root,
+        }
+    }
+
+    fn create(&mut self, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).text().trim().to_string();
+        let version = self.version_input.read(cx).text().trim().to_string();
+        if name.is_empty() || version.is_empty() {
+            self.status = "Name and version are required".into();
+            cx.notify();
+            return;
+        }
+        match create_instance(&self.data_root, &name, &version) {
+            Ok(dir) => self.status = format!("Created {}", dir.display()).into(),
+            Err(e) => self.status = format!("Error: {e}").into(),
+        }
+        cx.notify();
+    }
+}
+
+impl Render for NewInstanceView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_4()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(div().child("New Instance"))
+            .child(div().w(px(360.)).child(self.name_input.clone()))
+            .child(div().w(px(360.)).child(self.version_input.clone()))
+            .child(
+                div()
+                    .id("create-instance")
+                    .px_3()
+                    .py_1()
+                    .w(px(120.))
+                    .rounded_md()
+                    .bg(rgb(theme.accent))
+                    .text_color(rgb(theme.on_accent))
+                    .cursor_pointer()
+                    .child("Create")
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| this.create(cx))),
+            )
+            .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+    }
+}
+
+pub fn open_new_instance(
+    data_root: PathBuf,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<NewInstanceView>> {
+    let bounds = Bounds::centered(None, size(px(440.), px(320.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("New Instance — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|cx| NewInstanceView::new(data_root, theme, cx)),
+    )
+    .ok()
+}
+
+// ---- Settings window ----
+
+pub struct SettingsView {
+    settings: crate::settings::GlobalSettings,
+    status: SharedString,
+    theme: Theme,
+}
+
+impl SettingsView {
+    pub fn new(settings: crate::settings::GlobalSettings, theme: Theme) -> Self {
+        Self {
+            settings,
+            status: "Ready".into(),
+            theme,
+        }
+    }
+
+    fn toggle_theme(&mut self, cx: &mut Context<Self>) {
+        let next = match self.theme.mode {
+            ThemeMode::Dark => ThemeMode::Light,
+            ThemeMode::Light => ThemeMode::Dark,
+        };
+        self.theme = Theme::for_mode(next);
+        let name = match next {
+            ThemeMode::Dark => "dark",
+            ThemeMode::Light => "light",
+        };
+        self.settings.set("ApplicationTheme", name);
+        match self.settings.save() {
+            Ok(()) => self.status = format!("Saved theme: {name}").into(),
+            Err(e) => self.status = format!("Save failed: {e}").into(),
+        }
+        cx.notify();
+    }
+}
+
+impl Render for SettingsView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let entries: Vec<_> = self
+            .settings
+            .raw
+            .iter()
+            .map(|(k, v)| {
+                div()
+                    .flex()
+                    .justify_between()
+                    .px_3()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(k.clone())
+                    .child(div().text_color(rgb(theme.subtext)).child(v.clone()))
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .p_3()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child("Global Settings")
+                    .child(
+                        div()
+                            .id("toggle-theme")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child("Toggle Theme")
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.toggle_theme(cx))),
+                    )
+                    .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
+            )
+            .child(div().flex_1().flex().flex_col().overflow_hidden().children(entries))
+    }
+}
+
+pub fn open_settings(
+    settings: crate::settings::GlobalSettings,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<SettingsView>> {
+    let bounds = Bounds::centered(None, size(px(640.), px(560.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Settings — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|_| SettingsView::new(settings, theme)),
+    )
+    .ok()
 }

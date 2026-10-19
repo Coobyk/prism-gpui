@@ -166,7 +166,37 @@ impl Render for MainWindow {
                     )
                     .child(
                         div()
+                            .id("new-instance")
                             .ml_auto()
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child("New Instance")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                ui::open_new_instance(this.data_root.clone(), this.theme, cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("settings")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Settings")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let settings = crate::settings::GlobalSettings::load(&this.data_root);
+                                ui::open_settings(settings, this.theme, cx);
+                            })),
+                    )
+                    .child(
+                        div()
                             .text_sm()
                             .text_color(rgb(theme.subtext))
                             .child(self.status.clone()),
