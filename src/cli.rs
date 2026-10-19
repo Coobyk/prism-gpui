@@ -28,6 +28,32 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let name = args.get(2).map(|s| s.as_str());
             cmd_install_pack(data_root, slug, name)
         }
+        Some("login") => cmd_login(data_root),
+        Some("accounts") => {
+            let store = crate::accounts::AccountStore::load(data_root);
+            if store.accounts.is_empty() {
+                println!("(no accounts)");
+            }
+            for a in &store.accounts {
+                let active = store.active.as_deref() == Some(a.uuid.as_str());
+                println!("{}{:<20} {}", if active { "* " } else { "  " }, a.username, a.uuid);
+            }
+            Ok(())
+        }
+        Some("logout") => {
+            let uuid = args.get(1).ok_or("usage: logout <uuid|username>")?;
+            let mut store = crate::accounts::AccountStore::load(data_root);
+            let target = store
+                .accounts
+                .iter()
+                .find(|a| &a.uuid == uuid || &a.username == uuid)
+                .map(|a| a.uuid.clone())
+                .ok_or_else(|| format!("account not found: {uuid}"))?;
+            store.remove(&target);
+            store.save(data_root)?;
+            println!("removed {uuid}");
+            Ok(())
+        }
         Some("launch") => {
             let name = args.get(1).ok_or("usage: launch <instance>")?;
             cmd_launch(data_root, name)
@@ -220,6 +246,9 @@ fn print_help() {
     println!("  search-type <type> <query>  search Modrinth by project type");
     println!("  check-mods <instance>  look up installed mods on Modrinth");
     println!("  install-pack <slug> [name]  install a Modrinth modpack");
+    println!("  login             sign in with a Microsoft account");
+    println!("  accounts          list saved accounts");
+    println!("  logout <uuid|name>  remove an account");
     println!("  set-component <instance> <uid> <version>  change a component version");
     println!("  open <instance>   open the instance folder");
     println!("  worlds <instance>  list worlds");
@@ -297,6 +326,21 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
         meta::ensure_asset_index(data_root, &v)?;
     }
     println!("updated {name}: {total} files downloaded");
+    Ok(())
+}
+
+fn cmd_login(data_root: &Path) -> Result<(), String> {
+    let auth = crate::auth::AuthService::new();
+    let account = auth.login_interactive(|dc| {
+        println!(
+            "To sign in, open {} and enter the code: {}",
+            dc.verification_uri, dc.user_code
+        );
+    })?;
+    let mut store = crate::accounts::AccountStore::load(data_root);
+    store.upsert(account.clone());
+    store.save(data_root)?;
+    println!("signed in as {} ({})", account.username, account.uuid);
     Ok(())
 }
 

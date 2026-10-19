@@ -215,6 +215,26 @@ impl AuthService {
             expires_at: 0,
         })
     }
+
+    /// Run the whole device-code flow: print the user code, then poll until the
+    /// user authorizes, and return the resulting account.
+    pub fn login_interactive<F>(&self, mut on_prompt: F) -> Result<Account, String>
+    where
+        F: FnMut(&DeviceCode),
+    {
+        let dc = self.start_device_code()?;
+        on_prompt(&dc);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(dc.expires_in);
+        let interval = std::time::Duration::from_secs(dc.interval.max(1));
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(interval);
+            match self.poll_token(&dc.device_code) {
+                Ok(token) => return self.login_with_ms_token(&token.access_token),
+                Err(_) => continue,
+            }
+        }
+        Err("device code expired before authorization".into())
+    }
 }
 
 #[cfg(test)]

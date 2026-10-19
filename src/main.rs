@@ -1,6 +1,7 @@
 // Prism Launcher — Rust + GPUI rewrite
 // Modules: instance discovery, global settings, launch, GPUI shell.
 
+mod accounts;
 mod auth;
 mod cli;
 mod desktop;
