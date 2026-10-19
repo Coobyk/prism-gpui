@@ -33,7 +33,7 @@ struct FilesResponse {
 }
 
 #[derive(Deserialize)]
-struct CfFile {
+pub struct CfFile {
     id: u64,
     #[serde(default)]
     display_name: String,

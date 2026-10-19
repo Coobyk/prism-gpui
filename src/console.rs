@@ -22,6 +22,7 @@ pub struct ConsoleView {
 
 impl ConsoleView {
     pub fn spawn_launch(profile: LaunchProfile, name: String, theme: Theme, cx: &mut Context<Self>) -> Self {
+        let _ = &cx;
         let lines = Arc::new(Mutex::new(Vec::new()));
         let done = Arc::new(AtomicBool::new(false));
         let lines_bg = lines.clone();

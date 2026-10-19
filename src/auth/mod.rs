@@ -32,7 +32,7 @@ pub struct DeviceCode {
 }
 
 #[derive(Debug, Deserialize)]
-struct MsToken {
+pub struct MsToken {
     access_token: String,
     #[serde(default)]
     refresh_token: String,
