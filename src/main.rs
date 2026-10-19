@@ -3,6 +3,7 @@
 
 mod auth;
 mod cli;
+mod console;
 mod fs;
 mod instance;
 mod java;
@@ -55,38 +56,16 @@ impl MainWindow {
             cx.notify();
             return;
         };
-        let root = self.data_root.clone();
-        self.status = format!("Launching {}…", row.name).into();
+        match launch::build_profile(&row.dir, &self.data_root, &java) {
+            Some(profile) => {
+                console::open_console(profile, row.name.clone(), self.theme, cx);
+                self.status = format!("Launched {}", row.name).into();
+            }
+            None => {
+                self.status = format!("Cannot launch {}: missing metadata", row.name).into();
+            }
+        }
         cx.notify();
-        let name = row.name.clone();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let Some(profile) = launch::build_profile(&row.dir, &root, &java) else {
-                        return Err("Could not build launch profile (missing metadata)".to_string());
-                    };
-                    let mut cmd = profile.jvm_command();
-                    match cmd.spawn() {
-                        Ok(mut child) => match child.wait() {
-                            Ok(st) => Ok(format!("{name} exited: {st}")),
-                            Err(e) => Err(format!("wait failed: {e}")),
-                        },
-                        Err(e) => Err(format!("spawn failed: {e}")),
-                    }
-                })
-                .await;
-            let msg = match result {
-                Ok(m) => m,
-                Err(e) => format!("Launch failed: {e}"),
-            };
-            this.update(cx, |this, cx| {
-                this.status = msg.into();
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 }
 
