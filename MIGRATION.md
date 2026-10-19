@@ -149,7 +149,15 @@ tests; `cargo test` green):
   with account credentials injected.
 - `net.rs` — sha1-verified downloads, meta cache helpers.
 - `fs.rs` — recursive copy, zip-slip-safe joins, file listing.
-- `worlds.rs` — world (save) list / delete / rename.
+- `worlds.rs` — world (save) list / delete / rename, with real names read from
+  `level.dat`.
+- `nbt.rs` — minimal big-endian NBT reader (gzip/zlib/raw) for
+  `level.dat` and `servers.dat`.
+- `servers.rs` — multiplayer server list parsed from `servers.dat`.
+- `groups.rs` — instance groups (`instgroups.json`) with a main-window sidebar.
+- `forge.rs` — Forge/NeoForge version resolution + installer runner.
+- `skin.rs` — player skin renders (Crafatar).
+- `desktop.rs` — open files/folders/URLs via the OS.
 - `accounts.rs` + `auth/mod.rs` — Microsoft device-code → Xbox → XSTS →
   Minecraft chain; account store; vanilla-compatible offline UUIDs.
 - `updater.rs` — GitHub release check with semver comparison.
@@ -169,22 +177,25 @@ tests; `cargo test` green):
 - `pack/mmc.rs` — Prism/MultiMC instance zip import/export.
 
 ### UI (GPUI)
-- Main window: instance list, launch, new instance, settings, news.
+- Main window: instance list with icons, group sidebar/filter, launch, new
+  instance, settings, news, skin.
 - Instance window: tabs (Mods, Resource Packs, Shaders, Worlds, Screenshots,
   Logs), launch, browse content, open folder, per-tab file actions
   (enable/disable mods, open screenshots/logs).
 - Content browser: Modrinth search across mods / modpacks / resource packs /
   shaders with install (modpacks become new instances).
 - Console window streaming live launch output.
-- Settings, New Instance, Instance Settings, and News windows.
+- Settings, New Instance, Instance Settings, News, Screenshots, Servers, and
+  Skin windows.
 - `theme.rs` — Catppuccin-based light/dark palettes; `widgets/text_input.rs` —
   reusable GPUI text field.
 
 ### CLI (headless)
 `list java java-download search search-type check-mods install install-pack
-import export packinfo create rm rename duplicate components versions
-set-component add-fabric launch log news check-update open worlds world-rm
-login add-offline accounts logout`.
+install-url import export packinfo create rm rename duplicate components
+versions set-component add-fabric add-forge add-neoforge launch log news
+check-update open worlds world-rm servers groups group-set settings login
+add-offline accounts logout --version`.
 
 ### Still open
 - Forge/NeoForge/Quilt in-process installers (WiX-style).
