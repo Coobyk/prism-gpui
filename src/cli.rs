@@ -155,6 +155,49 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("added Fabric {loader_version} (intermediary {game_version}) to {name}");
             Ok(())
         }
+        Some("add-forge") => {
+            let name = args.get(1).ok_or("usage: add-forge <instance> [forge-version]")?;
+            let inst = find_instance(data_root, name)?;
+            let (game_version, _) = instance_game_loader(&inst.dir);
+            let mc = game_version.ok_or("could not determine Minecraft version")?;
+            let forge_version = match args.get(2) {
+                Some(v) => v.clone(),
+                None => crate::forge::resolve_forge(&mc, true)?,
+            };
+            let java = java::discover_java(data_root)
+                .into_iter()
+                .next()
+                .ok_or("no Java installation found")?;
+            let url = crate::forge::forge_installer_url(&mc, &forge_version);
+            println!("running Forge installer {mc}-{forge_version}…");
+            crate::forge::run_installer(&url, &java.path, &inst.dir)?;
+            meta::set_component(&inst.dir, "net.minecraftforge", &forge_version)?;
+            println!("installed Forge {forge_version} into {name}");
+            Ok(())
+        }
+        Some("add-neoforge") => {
+            let name = args.get(1).ok_or("usage: add-neoforge <instance> [version]")?;
+            let inst = find_instance(data_root, name)?;
+            let (game_version, _) = instance_game_loader(&inst.dir);
+            let mc = game_version.ok_or("could not determine Minecraft version")?;
+            let version = match args.get(2) {
+                Some(v) => v.clone(),
+                None => crate::forge::resolve_neoforge(&mc)?
+                    .into_iter()
+                    .next()
+                    .ok_or("no NeoForge version for this Minecraft version")?,
+            };
+            let java = java::discover_java(data_root)
+                .into_iter()
+                .next()
+                .ok_or("no Java installation found")?;
+            let url = crate::forge::neoforge_installer_url(&version);
+            println!("running NeoForge installer {version}…");
+            crate::forge::run_installer(&url, &java.path, &inst.dir)?;
+            meta::set_component(&inst.dir, "net.neoforged", &version)?;
+            println!("installed NeoForge {version} into {name}");
+            Ok(())
+        }
         Some("open") => {
             let name = args.get(1).ok_or("usage: open <instance>")?;
             let inst = find_instance(data_root, name)?;
@@ -252,6 +295,8 @@ fn print_help() {
     println!("  components <instance>  list components");
     println!("  versions <uid>    list available versions for a component");
     println!("  add-fabric <instance> [loader]  install Fabric loader into an instance");
+    println!("  add-forge <instance> [version]  run the Forge installer for an instance");
+    println!("  add-neoforge <instance> [version]  run the NeoForge installer");
     println!("  search-type <type> <query>  search Modrinth by project type");
     println!("  check-mods <instance>  look up installed mods on Modrinth");
     println!("  install-pack <slug> [name]  install a Modrinth modpack");

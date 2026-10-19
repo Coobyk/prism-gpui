@@ -6,6 +6,7 @@ mod auth;
 mod cli;
 mod desktop;
 mod console;
+mod forge;
 mod fs;
 mod i18n;
 mod instance;
