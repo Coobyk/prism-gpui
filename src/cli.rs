@@ -82,6 +82,29 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("set {uid} = {version} in {name}");
             Ok(())
         }
+        Some("add-fabric") => {
+            let name = args.get(1).ok_or("usage: add-fabric <instance> [loader-version]")?;
+            let inst = find_instance(data_root, name)?;
+            let (game_version, _) = instance_game_loader(&inst.dir);
+            let game_version = game_version.ok_or("could not determine Minecraft version")?;
+            // Resolve loader version: explicit or recommended.
+            let loader_version = match args.get(2) {
+                Some(v) => v.clone(),
+                None => meta::list_versions(data_root, "net.fabricmc.fabric-loader")
+                    .and_then(|idx| {
+                        idx.versions
+                            .iter()
+                            .find(|v| v.recommended)
+                            .or_else(|| idx.versions.first())
+                            .map(|v| v.version.clone())
+                    })
+                    .ok_or("no fabric loader metadata")?,
+            };
+            meta::set_component(&inst.dir, "net.fabricmc.intermediary", &game_version)?;
+            meta::set_component(&inst.dir, "net.fabricmc.fabric-loader", &loader_version)?;
+            println!("added Fabric {loader_version} (intermediary {game_version}) to {name}");
+            Ok(())
+        }
         Some("open") => {
             let name = args.get(1).ok_or("usage: open <instance>")?;
             let inst = find_instance(data_root, name)?;
@@ -178,6 +201,7 @@ fn print_help() {
     println!("  export <instance> <file> [format]  export (mrpack|curseforge|mmc)");
     println!("  components <instance>  list components");
     println!("  versions <uid>    list available versions for a component");
+    println!("  add-fabric <instance> [loader]  install Fabric loader into an instance");
     println!("  set-component <instance> <uid> <version>  change a component version");
     println!("  open <instance>   open the instance folder");
     println!("  worlds <instance>  list worlds");
