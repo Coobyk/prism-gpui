@@ -281,11 +281,29 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let inst = find_instance(data_root, name)?;
             for w in crate::worlds::list_worlds(&inst.dir) {
                 println!(
-                    "{:<30} {:<8} {}",
+                    "{:<28} {:<8} {:<10} {}{}",
                     w.name,
                     if w.has_level_dat { "valid" } else { "?" },
-                    human_size(w.size_bytes)
+                    human_size(w.size_bytes),
+                    w.display_name,
+                    if w.last_played > 0 {
+                        format!(" (last played {})", w.last_played)
+                    } else {
+                        String::new()
+                    }
                 );
+            }
+            Ok(())
+        }
+        Some("servers") => {
+            let name = args.get(1).ok_or("usage: servers <instance>")?;
+            let inst = find_instance(data_root, name)?;
+            let list = crate::servers::list_servers(&inst.dir);
+            if list.is_empty() {
+                println!("(no servers)");
+            }
+            for s in list {
+                println!("{:<24} {}", s.name, s.ip);
             }
             Ok(())
         }
@@ -386,6 +404,7 @@ fn print_help() {
     println!("  group-set <instance> <group|->  assign an instance to a group");
     println!("  open <instance>   open the instance folder");
     println!("  worlds <instance>  list worlds");
+    println!("  servers <instance>  list multiplayer servers");
     println!("  world-rm <instance> <world>  delete a world");
     println!("  check-update      check the latest Prism Launcher release");
     println!("  news              show the Prism news feed");

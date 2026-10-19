@@ -4,10 +4,14 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct World {
+    /// Directory name (stable id).
     pub name: String,
+    /// Human-readable name from `level.dat` (falls back to the id).
+    pub display_name: String,
     pub dir: PathBuf,
     pub has_level_dat: bool,
     pub size_bytes: u64,
+    pub last_played: i64,
 }
 
 pub fn saves_dir(instance_dir: &Path) -> PathBuf {
@@ -21,10 +25,20 @@ pub fn list_worlds(instance_dir: &Path) -> Vec<World> {
         for e in entries.flatten() {
             let p = e.path();
             if p.is_dir() {
+                let name = e.file_name().to_string_lossy().to_string();
+                let level = p.join("level.dat");
+                let has_level_dat = level.is_file();
+                let (display_name, last_played) = if has_level_dat {
+                    crate::nbt::read_level_dat(&level).unwrap_or((name.clone(), 0))
+                } else {
+                    (name.clone(), 0)
+                };
                 out.push(World {
-                    name: e.file_name().to_string_lossy().to_string(),
-                    has_level_dat: p.join("level.dat").is_file(),
+                    name,
+                    display_name,
+                    has_level_dat,
                     size_bytes: dir_size(&p),
+                    last_played,
                     dir: p,
                 });
             }
