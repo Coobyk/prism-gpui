@@ -245,8 +245,9 @@ impl Render for InstanceView {
                             .cursor_pointer()
                             .child("Browse Mods")
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                let dir = this.dir.join("minecraft").join("mods");
-                                crate::modbrowser::open_mod_browser(dir, theme, cx);
+                                let dir = this.dir.clone();
+                                let root = this.data_root.clone();
+                                crate::modbrowser::open_mod_browser(dir, root, theme, cx);
                             })),
                     )
                     .child(
