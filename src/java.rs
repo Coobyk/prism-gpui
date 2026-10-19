@@ -113,17 +113,24 @@ pub fn download_runtime(
 ) -> Result<PathBuf, String> {
     let body = crate::net::get_string(RUNTIMES_INDEX)?;
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    let entry = json
+    let platform = json
+        .get(os_key())
+        .and_then(|p| p.as_object())
+        .ok_or_else(|| format!("runtime index has no platform {}", os_key()))?;
+    let candidates = platform
         .get(component)
-        .and_then(|c| c.get(os_key()))
         .and_then(|a| a.as_array())
-        .and_then(|arr| arr.iter().find(|r| r.get("version").and_then(|v| v.get("name")).and_then(|n| n.as_str()) == Some(major)))
-        .or_else(|| {
-            json.get(component)
-                .and_then(|c| c.get(os_key()))
-                .and_then(|a| a.as_array())
-                .and_then(|arr| arr.first())
+        .ok_or_else(|| format!("no runtime {component} for {}", os_key()))?;
+    let entry = candidates
+        .iter()
+        .find(|r| {
+            r.get("version")
+                .and_then(|v| v.get("name"))
+                .and_then(|n| n.as_str())
+                .map(|n| n == major || n.starts_with(&format!("{major}.")))
+                .unwrap_or(false)
         })
+        .or_else(|| candidates.first())
         .ok_or_else(|| format!("no runtime for {component} {major} on {}", os_key()))?;
 
     let manifest_url = entry
