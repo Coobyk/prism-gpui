@@ -43,6 +43,7 @@ struct InstanceRow {
     version: String,
     loader: String,
     mem: String,
+    icon: Option<Arc<gpui::Image>>,
 }
 
 struct MainWindow {
@@ -109,18 +110,36 @@ impl Render for MainWindow {
                         div()
                             .id(("open", index_of(&self.instances, &row.name)))
                             .flex()
-                            .flex_col()
-                            .gap_1()
+                            .items_center()
+                            .gap_3()
                             .cursor_pointer()
                             .on_click(cx.listener(move |_this, _, _, cx| {
                                 ui::open_instance(&open_name, &open_dir, &open_root, this_theme, cx);
                             }))
-                            .child(div().text_base().child(row.name.clone()))
+                            .child(match row.icon.clone() {
+                                Some(icon) => div()
+                                    .w(px(32.))
+                                    .h(px(32.))
+                                    .flex_shrink_0()
+                                    .child(gpui::img(icon).w(px(32.)).h(px(32.)))
+                                    .into_any_element(),
+                                None => div().w(px(0.)).into_any_element(),
+                            })
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(rgb(theme.subtext))
-                                    .child(format!("{} · {} · {}", row.version, row.loader, row.mem)),
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(div().text_base().child(row.name.clone()))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(theme.subtext))
+                                            .child(format!(
+                                                "{} · {} · {}",
+                                                row.version, row.loader, row.mem
+                                            )),
+                                    ),
                             ),
                     )
                     .child(
@@ -278,9 +297,26 @@ fn instance_rows(root: &PathBuf) -> Vec<InstanceRow> {
                 version,
                 loader,
                 mem: format!("{}–{} MB", inst.min_mem, inst.max_mem),
+                icon: load_instance_icon(&inst.dir),
             }
         })
         .collect()
+}
+
+/// Load an instance's icon (`icon.png`/`icon.jpg`) if present.
+fn load_instance_icon(dir: &std::path::Path) -> Option<Arc<gpui::Image>> {
+    for name in ["icon.png", "icon.jpg", "icon.jpeg"] {
+        let path = dir.join(name);
+        if let Ok(bytes) = std::fs::read(&path) {
+            let format = if name.ends_with(".png") {
+                gpui::ImageFormat::Png
+            } else {
+                gpui::ImageFormat::Jpeg
+            };
+            return Some(Arc::new(gpui::Image::from_bytes(format, bytes)));
+        }
+    }
+    None
 }
 
 fn main() {
