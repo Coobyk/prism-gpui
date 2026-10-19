@@ -25,12 +25,35 @@ pub struct SolderPack {
     pub builds: Vec<String>,
 }
 
+/// A Technic id that may be encoded as a string or a number.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum IdValue {
+    Str(String),
+    Num(u64),
+}
+
+impl Default for IdValue {
+    fn default() -> Self {
+        IdValue::Str(String::new())
+    }
+}
+
+impl IdValue {
+    pub fn as_string(&self) -> String {
+        match self {
+            IdValue::Str(s) => s.clone(),
+            IdValue::Num(n) => n.to_string(),
+        }
+    }
+}
+
 /// A Technic platform pack description (search result / pack page).
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PlatformPack {
     #[serde(default)]
-    pub id: String,
+    pub id: IdValue,
     #[serde(default)]
     pub name: String,
     #[serde(default)]
@@ -49,14 +72,6 @@ pub struct PlatformPack {
     pub description: String,
     #[serde(default)]
     pub installs: u64,
-    #[serde(default)]
-    pub icon: Option<IconRef>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct IconRef {
-    #[serde(default)]
-    pub url: String,
 }
 
 impl PlatformPack {

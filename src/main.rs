@@ -14,6 +14,7 @@ mod instance;
 mod java;
 mod launch;
 mod meta;
+mod metaindex;
 mod modbrowser;
 mod modplatform;
 mod nbt;

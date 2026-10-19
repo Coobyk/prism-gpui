@@ -31,6 +31,10 @@ pub struct VersionJson {
     pub main_class: String,
     #[serde(default)]
     pub libraries: Vec<Library>,
+    /// Artifacts that must exist locally (e.g. a Forge installer) but are not
+    /// added to the classpath.
+    #[serde(default, rename = "mavenFiles")]
+    pub maven_files: Vec<Library>,
     #[serde(default, rename = "assetIndex")]
     pub asset_index: Option<AssetIndex>,
     #[serde(default)]
@@ -43,6 +47,62 @@ pub struct VersionJson {
     pub id: String,
     #[serde(default, rename = "javaVersion")]
     pub java_version: Option<JavaVersion>,
+    /// Prism component metadata: extra JVM/game arguments, which may be plain
+    /// strings or rule-based objects.
+    #[serde(default, rename = "+jvmArgs")]
+    pub extra_jvm_args: Vec<serde_json::Value>,
+    #[serde(default, rename = "+gameArgs")]
+    pub extra_game_args: Vec<serde_json::Value>,
+    #[serde(default, rename = "+traits")]
+    pub traits: Vec<String>,
+    #[serde(default, rename = "+agents")]
+    pub agents: Vec<Agent>,
+    #[serde(default)]
+    pub order: i32,
+    #[serde(default)]
+    pub requires: Vec<Requirement>,
+    #[serde(default)]
+    pub conflicts: Vec<Requirement>,
+    #[serde(default, rename = "name")]
+    pub component_name: String,
+    #[serde(default, rename = "uid")]
+    pub component_uid: String,
+    #[serde(default)]
+    pub version: String,
+}
+
+/// A Prism component dependency/conflict declaration.
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct Requirement {
+    #[serde(default)]
+    pub uid: String,
+    #[serde(default)]
+    pub equals: String,
+    #[serde(default)]
+    pub suggests: String,
+}
+
+/// A Java agent declared by a component (`+agents`).
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct Agent {
+    #[serde(default)]
+    pub argument: String,
+    #[serde(default)]
+    pub library: Option<Library>,
+    #[serde(default)]
+    pub main_class: String,
+}
+
+impl VersionJson {
+    /// Does this component have something to contribute to the launch?
+    pub fn is_empty_meta(&self) -> bool {
+        self.main_class.is_empty() && self.libraries.is_empty()
+    }
+
+    /// Whether this component is `net.minecraft` (the base game).
+    pub fn is_minecraft(&self) -> bool {
+        self.component_uid == "net.minecraft"
+    }
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -77,53 +137,320 @@ pub struct Library {
     pub url: Option<String>,
     #[serde(default)]
     pub clientreq: Option<bool>,
+    /// Mojang rule objects; when present the library only applies if the rules
+    /// resolve to `allow` for the current platform.
+    #[serde(default)]
+    pub rules: Vec<serde_json::Value>,
+    /// Legacy natives map (`{"linux": "natives-linux"}`).
+    #[serde(default)]
+    pub natives: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub extract: Option<Extract>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct Extract {
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct Downloads {
+    #[serde(default)]
     pub artifact: Option<Artifact>,
+    #[serde(default)]
+    pub classifiers: std::collections::BTreeMap<String, Artifact>,
+}
+
+/// The current platform's Mojang OS name.
+pub fn os_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "osx"
+    } else {
+        "linux"
+    }
+}
+
+/// The current platform's Mojang architecture name.
+pub fn os_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "x86" => "x86",
+        "aarch64" => "arm64",
+        other => other,
+    }
+}
+
+/// Whether a single Mojang rule object matches the current platform.
+fn rule_matches(rule: &serde_json::Value) -> bool {
+    if let Some(features) = rule.get("features").and_then(|f| f.as_object()) {
+        // The launcher enables no optional features, so any rule that requires
+        // one (is_demo_user, has_custom_resolution, …) never matches.
+        if !features.is_empty() {
+            return false;
+        }
+    }
+    if let Some(os) = rule.get("os") {
+        if let Some(name) = os.get("name").and_then(|v| v.as_str()) {
+            if name != os_name() {
+                return false;
+            }
+        }
+        if let Some(arch) = os.get("arch").and_then(|v| v.as_str()) {
+            if arch != os_arch() {
+                return false;
+            }
+        }
+        // `os.version` is a regex over the OS version; matching it requires the
+        // running kernel version, which we do not query, so an os.version rule
+        // is treated as not matching (this matches the common case where such
+        // rules refine newer-OS-only behaviour).
+        if os.get("version").is_some() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Evaluate a Mojang rules array. An empty array means "always".
+pub fn rules_allow(rules: &[serde_json::Value]) -> bool {
+    if rules.is_empty() {
+        return true;
+    }
+    let mut allowed = false;
+    for rule in rules {
+        if rule_matches(rule) {
+            allowed = rule.get("action").and_then(|a| a.as_str()) == Some("allow");
+        }
+    }
+    allowed
+}
+
+impl Library {
+    /// Whether this library applies to the current platform.
+    pub fn applies(&self) -> bool {
+        rules_allow(&self.rules)
+    }
+
+    /// The legacy natives classifier for the current platform, if declared.
+    pub fn native_classifier(&self) -> Option<String> {
+        let key = os_name();
+        self.natives
+            .get(key)
+            .map(|c| c.replace("${arch}", if cfg!(target_pointer_width = "64") { "64" } else { "32" }))
+    }
+
+    /// A modern (`:natives-<os>`) native jar.
+    pub fn is_modern_native(&self) -> bool {
+        self.name.contains(":natives-") && self.applies()
+    }
+
+    /// The artifact holding this library's natives, if any.
+    pub fn native_artifact(&self) -> Option<Artifact> {
+        if let Some(classifier) = self.native_classifier() {
+            if let Some(a) = self
+                .downloads
+                .as_ref()
+                .and_then(|d| d.classifiers.get(&classifier))
+            {
+                return Some(a.clone());
+            }
+        }
+        if self.is_modern_native() {
+            return self.downloads.as_ref().and_then(|d| d.artifact.clone());
+        }
+        None
+    }
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct Artifact {
+    #[serde(default)]
     pub path: String,
+    #[serde(default)]
     pub sha1: String,
+    #[serde(default)]
     pub size: u64,
     #[serde(default)]
     pub url: String,
 }
 
 impl Library {
-    /// Maven path, e.g. org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar
+    /// Maven path, e.g. `org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar`.
+    ///
+    /// Handles classifiers and extensions
+    /// (`group:artifact:version:classifier@ext`), which Prism's `mavenFiles`
+    /// use for installer jars such as `net.minecraftforge:forge:<v>:installer`.
     pub fn maven_path(&self) -> Option<String> {
         if let Some(path) = self
             .downloads
             .as_ref()
             .and_then(|d| d.artifact.as_ref())
             .map(|a| a.path.clone())
+            .filter(|p| !p.is_empty())
         {
             return Some(path);
         }
-        // derive from group:artifact:version
-        let parts: Vec<&str> = self.name.split(':').collect();
-        if parts.len() < 3 {
-            return None;
-        }
-        let (group, artifact, version) = (parts[0], parts[1], parts[2]);
-        Some(format!(
-            "{}/{}/{}/{}-{}.jar",
-            group.replace('.', "/"),
-            artifact,
-            version,
-            artifact,
-            version
-        ))
+        maven_path_of(&self.name)
     }
+
+    /// The classifier carried in the maven coordinate, if any.
+    pub fn classifier(&self) -> Option<&str> {
+        let (rest, _ext) = split_extension(&self.name);
+        let parts: Vec<&str> = rest.split(':').collect();
+        parts.get(3).copied().filter(|s| !s.is_empty())
+    }
+
+    /// The file extension from the maven coordinate (defaults to `jar`).
+    pub fn extension(&self) -> &str {
+        let (_rest, ext) = split_extension(&self.name);
+        ext
+    }
+}
+
+/// Split `group:a:v:classifier@ext` into (`group:a:v:classifier`, `ext`).
+fn split_extension(name: &str) -> (&str, &str) {
+    match name.split_once('@') {
+        Some((rest, ext)) if !ext.is_empty() => (rest, ext),
+        _ => (name, "jar"),
+    }
+}
+
+/// Build a maven path from a coordinate, honouring classifiers/extensions.
+pub fn maven_path_of(name: &str) -> Option<String> {
+    let (rest, ext) = split_extension(name);
+    let parts: Vec<&str> = rest.split(':').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let (group, artifact, version) = (parts[0], parts[1], parts[2]);
+    let classifier = parts.get(3).copied().filter(|s| !s.is_empty());
+    let file = match classifier {
+        Some(c) => format!("{artifact}-{version}-{c}.{ext}"),
+        None => format!("{artifact}-{version}.{ext}"),
+    };
+    Some(format!(
+        "{}/{}/{}/{}",
+        group.replace('.', "/"),
+        artifact,
+        version,
+        file
+    ))
 }
 
 pub fn read_version_json(path: &Path) -> Option<VersionJson> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+/// Mojang's version manifest (all Minecraft versions and their metadata URLs).
+pub const MOJANG_VERSION_MANIFEST: &str =
+    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct VersionManifest {
+    #[serde(default)]
+    pub latest: LatestVersions,
+    #[serde(default)]
+    pub versions: Vec<ManifestVersion>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct LatestVersions {
+    #[serde(default)]
+    pub release: String,
+    #[serde(default)]
+    pub snapshot: String,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ManifestVersion {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default, rename = "type")]
+    pub version_type: String,
+    #[serde(default)]
+    pub release_time: String,
+}
+
+impl VersionManifest {
+    pub fn find(&self, id: &str) -> Option<&ManifestVersion> {
+        self.versions.iter().find(|v| v.id == id)
+    }
+}
+
+/// Fetch (and cache) Mojang's version manifest.
+pub fn version_manifest(data_root: &Path) -> Result<VersionManifest, String> {
+    let cache = data_root.join("meta").join("mojang_version_manifest.json");
+    if let Ok(text) = std::fs::read_to_string(&cache) {
+        if let Ok(m) = serde_json::from_str::<VersionManifest>(&text) {
+            if !m.versions.is_empty() {
+                return Ok(m);
+            }
+        }
+    }
+    let body = crate::net::get_string(MOJANG_VERSION_MANIFEST)?;
+    let manifest: VersionManifest =
+        serde_json::from_str(&body).map_err(|e| format!("malformed version manifest: {e}"))?;
+    if let Some(dir) = cache.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&cache, body.as_bytes());
+    Ok(manifest)
+}
+
+/// Path of the cached `net.minecraft` metadata for a version.
+pub fn minecraft_metadata_path(data_root: &Path, version: &str) -> std::path::PathBuf {
+    data_root
+        .join("meta")
+        .join("net.minecraft")
+        .join(format!("{version}.json"))
+}
+
+/// Ensure `meta/net.minecraft/<version>.json` exists, downloading it from
+/// Mojang along with its libraries and asset index.
+pub fn ensure_minecraft_metadata(data_root: &Path, version: &str) -> Result<VersionJson, String> {
+    let dest = minecraft_metadata_path(data_root, version);
+    let json = if let Some(v) = read_version_json(&dest) {
+        v
+    } else {
+        let manifest = version_manifest(data_root)?;
+        let entry = manifest.find(version).ok_or_else(|| {
+            format!("Minecraft {version} is not in Mojang's version manifest")
+        })?;
+        let body = crate::net::get_string(&entry.url)?;
+        let parsed: VersionJson = serde_json::from_str(&body)
+            .map_err(|e| format!("Minecraft {version} metadata was malformed: {e}"))?;
+        if let Some(dir) = dest.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&dest, body.as_bytes()).map_err(|e| e.to_string())?;
+        parsed
+    };
+    Ok(json)
+}
+
+/// Ensure the Minecraft version's metadata, libraries and asset index are all
+/// present. Returns the number of files downloaded.
+pub fn ensure_minecraft(data_root: &Path, version: &str) -> Result<usize, String> {
+    let json = ensure_minecraft_metadata(data_root, version)?;
+    let mut n = ensure_libraries(data_root, &json)?;
+    if let Some(index) = ensure_asset_index(data_root, &json)? {
+        // Only fetch the index itself here; objects are fetched on demand.
+        if index.is_file() {
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+/// List Minecraft versions from Mojang's manifest (newest first).
+pub fn minecraft_versions(data_root: &Path) -> Result<Vec<ManifestVersion>, String> {
+    version_manifest(data_root).map(|m| m.versions)
 }
 
 /// Java major version required by an instance's Minecraft version. Prefers the
@@ -151,15 +478,43 @@ pub fn required_java_major(inst_dir: &Path, data_root: &Path) -> u32 {
     8
 }
 
-/// Resolve the classpath jars for a version from `<libraries>/<maven path>`.
+/// Resolve the classpath jars for a version from `<libraries>/<maven path>`,
+/// including only libraries that apply to the current platform.
 pub fn classpath(libs_dir: &Path, version: &VersionJson) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
     for lib in &version.libraries {
-        if let Some(p) = lib.maven_path() {
-            let full = libs_dir.join(p);
-            if full.is_file() {
-                out.push(full);
-            }
+        if !lib.applies() {
+            continue;
+        }
+        let Some(p) = lib.maven_path() else { continue };
+        let full = libs_dir.join(p);
+        if full.is_file() {
+            out.push(full);
+        }
+    }
+    out
+}
+
+/// Natives jars that must be extracted for the current platform.
+pub fn natives_artifacts(libs_dir: &Path, version: &VersionJson) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for lib in &version.libraries {
+        if !lib.applies() {
+            continue;
+        }
+        let Some(artifact) = lib.native_artifact() else {
+            continue;
+        };
+        let rel = if !artifact.path.is_empty() {
+            artifact.path.clone()
+        } else if let Some(p) = lib.maven_path() {
+            p
+        } else {
+            continue;
+        };
+        let full = libs_dir.join(rel);
+        if full.is_file() {
+            out.push(full);
         }
     }
     out
@@ -178,7 +533,11 @@ impl Library {
             .url
             .clone()
             .unwrap_or_else(|| "https://libraries.minecraft.net/".to_string());
-        Some(format!("{}{}", base, path))
+        Some(format!(
+            "{}/{}",
+            base.trim_end_matches('/'),
+            path
+        ))
     }
 
     pub fn artifact_sha1(&self) -> Option<&str> {
@@ -190,15 +549,46 @@ impl Library {
     }
 }
 
-/// Ensure all of a version's libraries are present under `<data_root>/libraries`.
-/// Returns the number of files downloaded.
-pub fn ensure_libraries(
-    data_root: &Path,
-    version: &VersionJson,
-) -> Result<usize, String> {
+/// Ensure all of a version's libraries (and maven-only artifacts) are present
+/// under `<data_root>/libraries`. Only libraries that apply to this platform
+/// are fetched. Returns the number of files downloaded.
+pub fn ensure_libraries(data_root: &Path, version: &VersionJson) -> Result<usize, String> {
     let libs_dir = data_root.join("libraries");
     let mut downloaded = 0;
-    for lib in &version.libraries {
+    for lib in version.libraries.iter().chain(version.maven_files.iter()) {
+        if !lib.rules.is_empty() && !lib.applies() {
+            continue;
+        }
+        // A library with a platform-specific natives map only contributes the
+        // matching classifier.
+        if !lib.natives.is_empty() {
+            if let Some(artifact) = lib.native_artifact() {
+                let Some(rel) = (if !artifact.path.is_empty() {
+                    Some(artifact.path.clone())
+                } else {
+                    lib.maven_path()
+                }) else {
+                    continue;
+                };
+                let url = if !artifact.url.is_empty() {
+                    artifact.url.clone()
+                } else {
+                    let base = lib
+                        .url
+                        .clone()
+                        .unwrap_or_else(|| "https://libraries.minecraft.net/".to_string());
+                    format!("{}/{}", base.trim_end_matches('/'), rel)
+                };
+                let dest = libs_dir.join(&rel);
+                let before = dest.is_file();
+                let sha = (!artifact.sha1.is_empty()).then_some(artifact.sha1.as_str());
+                crate::net::download_verified(&url, &dest, sha)?;
+                if !before && dest.is_file() {
+                    downloaded += 1;
+                }
+            }
+            continue;
+        }
         let Some(rel) = lib.maven_path() else { continue };
         let Some(url) = lib.artifact_url() else { continue };
         let dest = libs_dir.join(&rel);
@@ -283,6 +673,7 @@ mod tests {
                     path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar".into(),
                     ..Default::default()
                 }),
+                classifiers: Default::default(),
             }),
             ..Default::default()
         };
@@ -311,6 +702,90 @@ mod tests {
             lib.artifact_url().unwrap(),
             "https://maven.fabricmc.net/org/ow2/asm/asm/9.10.1/asm-9.10.1.jar"
         );
+    }
+
+    #[test]
+    fn evaluates_mojang_rules() {
+        use serde_json::json;
+        // No rules: always applies.
+        assert!(rules_allow(&[]));
+        // OS-specific allow.
+        let linux_only = vec![json!({"action":"allow","os":{"name":"linux"}})];
+        let mac_only = vec![json!({"action":"allow","os":{"name":"osx"}})];
+        assert_eq!(rules_allow(&linux_only), cfg!(target_os = "linux"));
+        assert_eq!(rules_allow(&mac_only), cfg!(target_os = "macos"));
+        // An allow for another OS followed by a blanket disallow.
+        let rules = vec![
+            json!({"action":"allow","os":{"name":"windows"}}),
+            json!({"action":"disallow"}),
+        ];
+        assert!(!rules_allow(&rules));
+        // Feature-gated rules never match.
+        let demo = vec![json!({"action":"allow","features":{"is_demo_user":true}})];
+        assert!(!rules_allow(&demo));
+    }
+
+    #[test]
+    fn library_applicability_and_natives() {
+        use serde_json::json;
+        let lib: Library = serde_json::from_value(json!({
+            "name": "ca.weblite:java-objc-bridge:1.1",
+            "rules": [{"action":"allow","os":{"name":"osx"}}]
+        }))
+        .unwrap();
+        assert_eq!(lib.applies(), cfg!(target_os = "macos"));
+
+        let modern: Library = serde_json::from_value(json!({
+            "name": "org.lwjgl:lwjgl-glfw:3.3.1:natives-linux",
+            "downloads": {"artifact": {
+                "path": "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-linux.jar"
+            }},
+            "rules": [{"action":"allow","os":{"name":"linux"}}]
+        }))
+        .unwrap();
+        assert_eq!(modern.is_modern_native(), cfg!(target_os = "linux"));
+        assert_eq!(
+            modern.native_artifact().map(|a| a.path),
+            cfg!(target_os = "linux").then(|| "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-linux.jar".to_string())
+        );
+    }
+
+    #[test]
+    fn legacy_natives_classifier_selected_for_os() {
+        let lib: Library = serde_json::from_str(&format!(
+            r#"{{"name":"org.lwjgl.lwjgl:lwjgl-platform:2.9.4",
+                 "natives":{{"{}":"natives-{}"}},
+                 "downloads":{{"classifiers":{{"natives-{}":{{"path":"org/lwjgl/lwjgl-platform/2.9.4/lwjgl-platform-2.9.4-natives-{}.jar"}}}}}}}}"#,
+            os_name(), os_name(), os_name(), os_name()
+        ))
+        .unwrap();
+        assert_eq!(
+            lib.native_classifier().as_deref(),
+            Some(format!("natives-{}", os_name()).as_str())
+        );
+        assert!(lib.native_artifact().is_some());
+    }
+
+    #[test]
+    fn classpath_skips_inapplicable_libraries() {
+        use serde_json::json;
+        let td = tempfile::tempdir().unwrap();
+        let libs = td.path();
+        std::fs::create_dir_all(libs.join("a/b/1")).unwrap();
+        std::fs::create_dir_all(libs.join("c/d/2")).unwrap();
+        std::fs::write(libs.join("a/b/1/b-1.jar"), b"x").unwrap();
+        std::fs::write(libs.join("c/d/2/d-2.jar"), b"x").unwrap();
+        let version: VersionJson = serde_json::from_value(json!({
+            "libraries": [
+                {"name":"a.b:b:1","downloads":{"artifact":{"path":"a/b/1/b-1.jar"}}},
+                {"name":"c.d:d:2","downloads":{"artifact":{"path":"c/d/2/d-2.jar"}},
+                 "rules":[{"action":"allow","os":{"name":"plan9"}}]}
+            ]
+        }))
+        .unwrap();
+        let cp = classpath(libs, &version);
+        assert_eq!(cp.len(), 1);
+        assert!(cp[0].ends_with("a/b/1/b-1.jar"));
     }
 
     #[test]

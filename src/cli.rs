@@ -133,14 +133,41 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             Ok(())
         }
         Some("launch") => {
-            let name = args.get(1).ok_or("usage: launch <instance>")?;
-            cmd_launch(data_root, name)
+            let name = args.get(1).ok_or("usage: launch <instance> [--dry-run]")?;
+            let dry_run = args.iter().any(|a| a == "--dry-run");
+            cmd_launch(data_root, name, dry_run)
+        }
+        Some("profile") => {
+            let name = args.get(1).ok_or("usage: profile <instance>")?;
+            cmd_profile(data_root, name)
         }
         Some("create") => {
             let name = args.get(1).ok_or("usage: create <name> <mc-version>")?;
             let ver = args.get(2).ok_or("usage: create <name> <mc-version>")?;
             let dir = instance::create_instance(data_root, name, ver)?;
-            println!("created {}", dir.display());
+            match meta::ensure_minecraft(data_root, ver) {
+                Ok(n) => println!("created {} ({n} Minecraft files)", dir.display()),
+                Err(e) => println!("created {} (warning: {e})", dir.display()),
+            }
+            Ok(())
+        }
+        Some("mc-versions") => {
+            let list = meta::minecraft_versions(data_root)?;
+            let filter = args.get(1).map(|s| s.to_ascii_lowercase());
+            let mut shown = 0;
+            for v in &list {
+                if let Some(f) = &filter {
+                    if !v.id.to_ascii_lowercase().contains(f) && v.version_type != *f {
+                        continue;
+                    }
+                }
+                println!("  {:<20} {:<10} {}", v.id, v.version_type, v.release_time);
+                shown += 1;
+                if shown >= 40 {
+                    break;
+                }
+            }
+            println!("({} versions listed of {})", shown, list.len());
             Ok(())
         }
         Some("rm") | Some("remove") => {
@@ -183,12 +210,37 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             Ok(())
         }
         Some("versions") => {
-            let uid = args.get(1).ok_or("usage: versions <uid>")?;
-            let idx = meta::list_versions(data_root, uid)
-                .ok_or_else(|| format!("no metadata for {uid}"))?;
-            println!("{} ({})", idx.name, idx.uid);
-            for v in idx.versions.iter().take(40) {
-                println!("  {:<16} {}{}", v.version, v.release_type, if v.recommended { " *" } else { "" });
+            let uid = args.get(1).ok_or("usage: versions <uid> [minecraft]")?;
+            let mc = args.get(2).map(|s| s.as_str());
+            if crate::metaindex::is_indexed_component(uid) {
+                let mcs: Vec<String> = mc.map(|m| vec![m.to_string()]).unwrap_or_default();
+                let list = crate::metaindex::versions_for(data_root, uid, &mcs)?;
+                println!(
+                    "{} ({}) — {} versions",
+                    crate::metaindex::component_label(uid),
+                    uid,
+                    list.len()
+                );
+                for v in list.iter().take(40) {
+                    println!(
+                        "  {:<18} {:<10}{}",
+                        v.version,
+                        v.minecraft.as_deref().unwrap_or(""),
+                        if v.recommended { " *" } else { "" }
+                    );
+                }
+            } else {
+                let idx = meta::list_versions(data_root, uid)
+                    .ok_or_else(|| format!("no metadata for {uid}"))?;
+                println!("{} ({})", idx.name, idx.uid);
+                for v in idx.versions.iter().take(40) {
+                    println!(
+                        "  {:<16} {}{}",
+                        v.version,
+                        v.release_type,
+                        if v.recommended { " *" } else { "" }
+                    );
+                }
             }
             Ok(())
         }
@@ -207,62 +259,128 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let (game_version, _) = instance_game_loader(&inst.dir);
             let game_version = game_version.ok_or("could not determine Minecraft version")?;
             // Resolve loader version: explicit or recommended.
-            let loader_version = match args.get(2) {
-                Some(v) => v.clone(),
-                None => meta::list_versions(data_root, "net.fabricmc.fabric-loader")
-                    .and_then(|idx| {
-                        idx.versions
-                            .iter()
-                            .find(|v| v.recommended)
-                            .or_else(|| idx.versions.first())
-                            .map(|v| v.version.clone())
-                    })
-                    .ok_or("no fabric loader metadata")?,
+            // Fabric's Minecraft constraint lives on the intermediary
+            // dependency, so resolve the whole chain.
+            let chain = match args.get(2) {
+                Some(v) => vec![
+                    crate::metaindex::ResolvedComponent {
+                        uid: "net.fabricmc.intermediary".to_string(),
+                        version: game_version.clone(),
+                    },
+                    crate::metaindex::ResolvedComponent {
+                        uid: "net.fabricmc.fabric-loader".to_string(),
+                        version: v.clone(),
+                    },
+                ],
+                None => crate::metaindex::resolve_chain(
+                    data_root,
+                    "net.fabricmc.fabric-loader",
+                    &game_version,
+                    true,
+                )?,
             };
-            meta::set_component(&inst.dir, "net.fabricmc.intermediary", &game_version)?;
-            meta::set_component(&inst.dir, "net.fabricmc.fabric-loader", &loader_version)?;
-            println!("added Fabric {loader_version} (intermediary {game_version}) to {name}");
+            let mut missing = Vec::new();
+            for c in &chain {
+                meta::set_component(&inst.dir, &c.uid, &c.version)?;
+                if let Err(e) = crate::metaindex::ensure_component(data_root, &c.uid, &c.version) {
+                    missing.push(format!("{}: {e}", c.uid));
+                }
+            }
+            let loader_version = chain
+                .iter()
+                .find(|c| c.uid == "net.fabricmc.fabric-loader")
+                .map(|c| c.version.clone())
+                .unwrap_or_default();
+            println!("added Fabric {loader_version} (Minecraft {game_version}) to {name}");
+            for m in missing {
+                eprintln!("warning: {m}");
+            }
             Ok(())
         }
         Some("add-forge") => {
-            let name = args.get(1).ok_or("usage: add-forge <instance> [forge-version]")?;
+            let name = args
+                .get(1)
+                .ok_or("usage: add-forge <instance> [forge-version] [--legacy]")?;
             let inst = find_instance(data_root, name)?;
+            let explicit = args.get(2).filter(|a| !a.starts_with("--")).cloned();
+            let legacy = args.iter().any(|a| a == "--legacy");
             let (game_version, _) = instance_game_loader(&inst.dir);
             let mc = game_version.ok_or("could not determine Minecraft version")?;
-            let forge_version = match args.get(2) {
+            let forge_version = match &explicit {
                 Some(v) => v.clone(),
-                None => crate::forge::resolve_forge(&mc, true)?,
+                None => crate::metaindex::resolve(data_root, "net.minecraftforge", &mc, true)?,
             };
-            let java = java::discover_java(data_root)
-                .into_iter()
-                .next()
-                .ok_or("no Java installation found")?;
-            let url = crate::forge::forge_installer_url(&mc, &forge_version);
-            println!("running Forge installer {mc}-{forge_version}…");
-            crate::forge::run_installer(&url, &java.path, &inst.dir)?;
+            if legacy {
+                // Run the vendor installer jar directly instead of using
+                // ForgeWrapper, which is useful for debugging or old packs.
+                let java = java::discover_java(data_root)
+                    .into_iter()
+                    .next()
+                    .ok_or("no Java installation found")?;
+                let url = crate::forge::forge_installer_url(&mc, &forge_version);
+                println!("running Forge installer {mc}-{forge_version}…");
+                crate::forge::run_installer(&url, &java.path, &inst.dir)?;
+            } else {
+                crate::metaindex::ensure_component(data_root, "net.minecraftforge", &forge_version)?;
+            }
             meta::set_component(&inst.dir, "net.minecraftforge", &forge_version)?;
             println!("installed Forge {forge_version} into {name}");
             Ok(())
         }
-        Some("add-neoforge") => {
-            let name = args.get(1).ok_or("usage: add-neoforge <instance> [version]")?;
+        Some("add-quilt") => {
+            let name = args.get(1).ok_or("usage: add-quilt <instance> [loader-version]")?;
             let inst = find_instance(data_root, name)?;
             let (game_version, _) = instance_game_loader(&inst.dir);
             let mc = game_version.ok_or("could not determine Minecraft version")?;
-            let version = match args.get(2) {
+            let chain = match args.get(2) {
+                Some(v) => vec![crate::metaindex::ResolvedComponent {
+                    uid: "org.quiltmc.quilt-loader".to_string(),
+                    version: v.clone(),
+                }],
+                None => crate::metaindex::resolve_chain(
+                    data_root,
+                    "org.quiltmc.quilt-loader",
+                    &mc,
+                    true,
+                )?,
+            };
+            for c in &chain {
+                meta::set_component(&inst.dir, &c.uid, &c.version)?;
+                if let Err(e) = crate::metaindex::ensure_component(data_root, &c.uid, &c.version) {
+                    eprintln!("warning: {}: {e}", c.uid);
+                }
+            }
+            let loader_version = chain
+                .iter()
+                .find(|c| c.uid == "org.quiltmc.quilt-loader")
+                .map(|c| c.version.clone())
+                .unwrap_or_default();
+            println!("added Quilt {loader_version} to {name}");
+            Ok(())
+        }
+        Some("add-neoforge") => {
+            let name = args
+                .get(1)
+                .ok_or("usage: add-neoforge <instance> [version] [--legacy]")?;
+            let inst = find_instance(data_root, name)?;
+            let (game_version, _) = instance_game_loader(&inst.dir);
+            let mc = game_version.ok_or("could not determine Minecraft version")?;
+            let legacy = args.iter().any(|a| a == "--legacy");
+            let version = match args.get(2).filter(|a| !a.starts_with("--")) {
                 Some(v) => v.clone(),
-                None => crate::forge::resolve_neoforge(&mc)?
+                None => crate::metaindex::resolve(data_root, "net.neoforged", &mc, true)?,
+            };
+            if legacy {
+                let java = java::discover_java(data_root)
                     .into_iter()
                     .next()
-                    .ok_or("no NeoForge version for this Minecraft version")?,
-            };
-            let java = java::discover_java(data_root)
-                .into_iter()
-                .next()
-                .ok_or("no Java installation found")?;
-            let url = crate::forge::neoforge_installer_url(&version);
-            println!("running NeoForge installer {version}…");
-            crate::forge::run_installer(&url, &java.path, &inst.dir)?;
+                    .ok_or("no Java installation found")?;
+                let url = crate::forge::neoforge_installer_url(&version);
+                println!("running NeoForge installer {version}…");
+                crate::forge::run_installer(&url, &java.path, &inst.dir)?;
+            } else {
+                crate::metaindex::ensure_component(data_root, "net.neoforged", &version)?;
+            }
             meta::set_component(&inst.dir, "net.neoforged", &version)?;
             println!("installed NeoForge {version} into {name}");
             Ok(())
@@ -589,7 +707,15 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
     let pack = meta::read_component_pack(&inst.dir).ok_or("no mmc-pack.json")?;
     let meta_dir = data_root.join("meta");
     let mut total = 0usize;
+    // Indexed components (loaders) are fetched from Prism's meta index, which
+    // also materialises their libraries and maven-only artifacts.
+    let (resolved, failed) = crate::metaindex::ensure_instance_components(data_root, &pack);
     for c in &pack.components {
+        if c.uid == "net.minecraft" {
+            if let Err(e) = meta::ensure_minecraft(data_root, &c.version) {
+                eprintln!("warning: net.minecraft {}: {e}", c.version);
+            }
+        }
         let path = meta_dir.join(&c.uid).join(format!("{}.json", c.version));
         let Some(v) = meta::read_version_json(&path) else {
             continue;
@@ -597,7 +723,10 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
         total += meta::ensure_libraries(data_root, &v)?;
         meta::ensure_asset_index(data_root, &v)?;
     }
-    println!("updated {name}: {total} files downloaded");
+    println!("updated {name}: {resolved} components resolved, {total} files downloaded");
+    for f in &failed {
+        eprintln!("warning: {f}");
+    }
     Ok(())
 }
 
@@ -868,6 +997,13 @@ fn create_instance_with_components(
     }
     for (uid, version) in &comps {
         let _ = meta::set_component(&dir, uid, version);
+        if uid == "net.minecraft" {
+            // Prism instances need the Mojang version JSON, libraries and
+            // asset index before they can launch.
+            if let Err(e) = meta::ensure_minecraft(data_root, version) {
+                eprintln!("warning: could not fetch Minecraft {version} metadata: {e}");
+            }
+        }
     }
     Ok(dir)
 }
@@ -1285,7 +1421,47 @@ fn instance_game_loader(dir: &Path) -> (Option<String>, Option<String>) {
     (game, loader)
 }
 
-fn cmd_launch(data_root: &Path, name: &str) -> Result<(), String> {
+/// Print the launch command and component summary for an instance.
+fn cmd_profile(data_root: &Path, name: &str) -> Result<(), String> {
+    let inst = instance::discover_instances(data_root)
+        .into_iter()
+        .find(|i| i.name == name)
+        .ok_or_else(|| format!("instance not found: {name}"))?;
+    let java_path = java::ensure_for_instance(data_root, &inst.dir)?;
+    let account = crate::accounts::AccountStore::load(data_root)
+        .active_account()
+        .cloned();
+    let profile =
+        launch::build_profile_with_account(&inst.dir, data_root, &java_path, account.as_ref())
+            .ok_or("could not build launch profile")?;
+    if let Some(pack) = meta::read_component_pack(&inst.dir) {
+        println!("components:");
+        for c in &pack.components {
+            println!(
+                "  {:<32} {:<16} {}",
+                c.uid,
+                c.version,
+                crate::metaindex::component_label(&c.uid)
+            );
+        }
+    }
+    println!("java:      {}", profile.java_path.display());
+    println!("main:      {}", profile.main_class);
+    println!("game dir:  {}", profile.game_dir.display());
+    println!("memory:    {}M–{}M", profile.min_mem_mb, profile.max_mem_mb);
+    println!("classpath: {} jars", profile.classpath.len());
+    if !profile.wrapper.is_empty() {
+        println!("wrapper:   {}", profile.wrapper.join(" "));
+    }
+    if !profile.pre_launch.is_empty() {
+        println!("pre-launch: {}", profile.pre_launch);
+    }
+    println!("jvm args:  {}", profile.jvm_args.join(" "));
+    println!("game args: {}", profile.game_args.join(" "));
+    Ok(())
+}
+
+fn cmd_launch(data_root: &Path, name: &str, dry_run: bool) -> Result<(), String> {
     let inst = instance::discover_instances(data_root)
         .into_iter()
         .find(|i| i.name == name)
@@ -1305,6 +1481,11 @@ fn cmd_launch(data_root: &Path, name: &str) -> Result<(), String> {
         profile.classpath.len(),
         profile.main_class
     );
+    if dry_run {
+        let cmd = profile.jvm_command();
+        println!("command: {:?}", cmd);
+        return Ok(());
+    }
     if !profile.pre_launch.trim().is_empty() {
         println!("running pre-launch: {}", profile.pre_launch);
         launch::run_hook(&profile.pre_launch, &profile.game_dir)?;
