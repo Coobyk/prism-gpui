@@ -212,6 +212,21 @@ impl Render for MainWindow {
                     )
                     .child(
                         div()
+                            .id("news")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("News")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                ui::open_news(this.theme, cx);
+                            })),
+                    )
+                    .child(
+                        div()
                             .text_sm()
                             .text_color(rgb(theme.subtext))
                             .child(self.status.clone()),

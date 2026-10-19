@@ -141,6 +141,20 @@ impl Render for InstanceView {
                 .cloned()
                 .enumerate()
                 .map(|(i, e)| {
+                    let openable = matches!(self.tab, Tab::Screenshots | Tab::Logs);
+                    let label = if openable {
+                        let file = e.clone();
+                        div()
+                            .id(i)
+                            .cursor_pointer()
+                            .child(e.clone())
+                            .on_click(cx.listener(move |this: &mut Self, _, _, _cx| {
+                                let _ = crate::desktop::open_path(&this.current_dir().join(&file));
+                            }))
+                            .into_any_element()
+                    } else {
+                        div().child(e.clone()).into_any_element()
+                    };
                     let mut row = div()
                         .flex()
                         .items_center()
@@ -149,7 +163,7 @@ impl Render for InstanceView {
                         .py_1()
                         .border_b_1()
                         .border_color(rgb(theme.border))
-                        .child(e.clone());
+                        .child(label);
                     if is_mods && !e.ends_with('/') {
                         let file = e.clone();
                         let disabled = file.ends_with(".disabled");
@@ -629,6 +643,127 @@ pub fn open_instance_settings(
             ..Default::default()
         },
         move |_, cx| cx.new(|cx| InstanceSettingsView::new(dir, &instance, theme, cx)),
+    )
+    .ok()
+}
+
+// ---- News window ----
+
+pub struct NewsView {
+    entries: Vec<crate::news::NewsEntry>,
+    status: SharedString,
+    theme: Theme,
+}
+
+impl NewsView {
+    pub fn new(theme: Theme, cx: &mut Context<Self>) -> Self {
+        let mut v = Self {
+            entries: Vec::new(),
+            status: "Loading news…".into(),
+            theme,
+        };
+        v.reload(cx);
+        v
+    }
+
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        self.status = "Loading news…".into();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::news::fetch() })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(entries) => {
+                        this.status = format!("{} entries", entries.len()).into();
+                        this.entries = entries;
+                    }
+                    Err(e) => this.status = format!("Failed: {e}").into(),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+}
+
+impl Render for NewsView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let items: Vec<_> = self
+            .entries
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, e)| {
+                let url = e.url.clone();
+                div()
+                    .id(i)
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .cursor_pointer()
+                    .child(div().text_base().child(e.title.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(theme.subtext))
+                            .child(format!("{} · {}", e.date, url)),
+                    )
+                    .on_click(cx.listener(move |_this: &mut Self, _, _, _cx| {
+                        let _ = crate::desktop::open_url(&url);
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(36.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child("News")
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
+            )
+            .child(div().flex_1().flex().flex_col().overflow_hidden().children(items))
+    }
+}
+
+pub fn open_news(theme: Theme, cx: &mut App) -> Option<gpui::WindowHandle<NewsView>> {
+    let bounds = Bounds::centered(None, size(px(620.), px(600.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("News — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|cx| NewsView::new(theme, cx)),
     )
     .ok()
 }
