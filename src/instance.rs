@@ -50,6 +50,24 @@ impl Instance {
     }
 }
 
+impl Instance {
+    /// Write the settings back to instance.cfg.
+    pub fn save(&self) -> std::io::Result<()> {
+        let mut out = String::from("[General]\n");
+        for (k, v) in &self.settings {
+            out.push_str(k);
+            out.push('=');
+            out.push_str(v);
+            out.push('\n');
+        }
+        std::fs::write(self.dir.join("instance.cfg"), out)
+    }
+
+    pub fn set(&mut self, key: &str, value: &str) {
+        self.settings.insert(key.to_string(), value.to_string());
+    }
+}
+
 /// Discover instances under `<data_root>/instances`.
 pub fn discover_instances(data_root: &Path) -> Vec<Instance> {
     let instances_dir = data_root.join("instances");

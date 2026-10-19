@@ -37,4 +37,40 @@ impl GlobalSettings {
             raw,
         }
     }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.raw.get(key).map(|s| s.as_str())
+    }
+
+    pub fn set(&mut self, key: &str, value: &str) {
+        self.raw.insert(key.to_string(), value.to_string());
+    }
+
+    /// Write the settings back to prismlauncher.cfg.
+    pub fn save(&self) -> std::io::Result<()> {
+        let mut out = String::from("[General]\n");
+        for (k, v) in &self.raw {
+            out.push_str(k);
+            out.push('=');
+            out.push_str(v);
+            out.push('\n');
+        }
+        std::fs::write(self.data_root.join("prismlauncher.cfg"), out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn save_and_reload() {
+        let td = tempfile::tempdir().unwrap();
+        let mut s = GlobalSettings::load(td.path());
+        s.set("ApplicationTheme", "dark");
+        s.set("MaxMemAlloc", "2048");
+        s.save().unwrap();
+        let s2 = GlobalSettings::load(td.path());
+        assert_eq!(s2.theme, "dark");
+        assert_eq!(s2.get("MaxMemAlloc"), Some("2048"));
+    }
 }
