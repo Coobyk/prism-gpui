@@ -8,6 +8,7 @@ mod desktop;
 mod console;
 mod forge;
 mod fs;
+mod groups;
 mod i18n;
 mod instance;
 mod java;
@@ -43,6 +44,7 @@ struct InstanceRow {
     version: String,
     loader: String,
     mem: String,
+    group: Option<String>,
     icon: Option<Arc<gpui::Image>>,
 }
 
@@ -54,6 +56,8 @@ struct MainWindow {
     data_root: PathBuf,
     theme: Theme,
     status: SharedString,
+    /// Selected group filter; `None` = show all.
+    filter: Option<String>,
 }
 
 impl MainWindow {
@@ -88,9 +92,45 @@ impl Render for MainWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let root_for_open = self.data_root.clone();
+
+        // Collect the distinct groups for the sidebar.
+        let mut group_names: Vec<String> = self
+            .instances
+            .iter()
+            .filter_map(|r| r.group.clone())
+            .collect();
+        group_names.sort();
+        group_names.dedup();
+
+        let filter = self.filter.clone();
+        let sidebar: Vec<_> = std::iter::once(None)
+            .chain(group_names.iter().map(|g| Some(g.clone())))
+            .enumerate()
+            .map(|(i, g)| {
+                let selected = filter == g;
+                let label = g.clone().unwrap_or_else(|| "All instances".to_string());
+                let value = g.clone();
+                div()
+                    .id(i)
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.surface) })
+                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
+                    .child(label)
+                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                        this.filter = value.clone();
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
         let rows: Vec<_> = self
             .instances
             .iter()
+            .filter(|r| filter.is_none() || r.group == filter)
             .cloned()
             .map(|row| {
                 let launch_row = row.clone();
@@ -254,11 +294,30 @@ impl Render for MainWindow {
             )
             .child(
                 div()
-                    .flex_1()
                     .flex()
-                    .flex_col()
+                    .flex_1()
                     .overflow_hidden()
-                    .children(body),
+                    .child(
+                        div()
+                            .w(px(190.))
+                            .flex_shrink_0()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .p_2()
+                            .bg(rgb(theme.surface))
+                            .border_r_1()
+                            .border_color(rgb(theme.border))
+                            .children(sidebar),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .children(body),
+                    ),
             )
     }
 }
@@ -277,9 +336,16 @@ fn data_root() -> PathBuf {
 }
 
 fn instance_rows(root: &PathBuf) -> Vec<InstanceRow> {
+    let groups = groups::GroupStore::load(root);
     discover_instances(root)
         .into_iter()
         .map(|inst| {
+            let id = inst
+                .dir
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| inst.name.clone());
+            let group = groups.group_of(&id).map(|s| s.to_string());
             let mut version = String::from("?");
             let mut loader = String::from("vanilla");
             if let Some(pack) = meta::read_component_pack(&inst.dir) {
@@ -297,6 +363,7 @@ fn instance_rows(root: &PathBuf) -> Vec<InstanceRow> {
                 version,
                 loader,
                 mem: format!("{}–{} MB", inst.min_mem, inst.max_mem),
+                group,
                 icon: load_instance_icon(&inst.dir),
             }
         })
@@ -363,6 +430,7 @@ fn main() {
                     data_root: (*root).clone(),
                     theme,
                     status: "Ready".into(),
+                    filter: None,
                 })
             },
         )

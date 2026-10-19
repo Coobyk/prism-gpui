@@ -198,6 +198,32 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("installed NeoForge {version} into {name}");
             Ok(())
         }
+        Some("groups") => {
+            let store = crate::groups::GroupStore::load(data_root);
+            if store.groups.is_empty() {
+                println!("(no groups)");
+            }
+            for (name, g) in &store.groups {
+                println!("{name} ({}): {}", g.instances.len(), g.instances.join(", "));
+            }
+            Ok(())
+        }
+        Some("group-set") => {
+            let name = args.get(1).ok_or("usage: group-set <instance> <group|->")?;
+            let group = args.get(2).ok_or("usage: group-set <instance> <group|->")?;
+            let inst = find_instance(data_root, name)?;
+            let id = inst
+                .dir
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| name.clone());
+            let mut store = crate::groups::GroupStore::load(data_root);
+            let group = if group == "-" { None } else { Some(group.as_str()) };
+            store.set_group(&id, group);
+            store.save(data_root)?;
+            println!("set group of {name} to {}", group.unwrap_or("(none)"));
+            Ok(())
+        }
         Some("open") => {
             let name = args.get(1).ok_or("usage: open <instance>")?;
             let inst = find_instance(data_root, name)?;
@@ -305,6 +331,8 @@ fn print_help() {
     println!("  accounts          list saved accounts");
     println!("  logout <uuid|name>  remove an account");
     println!("  set-component <instance> <uid> <version>  change a component version");
+    println!("  groups            list instance groups");
+    println!("  group-set <instance> <group|->  assign an instance to a group");
     println!("  open <instance>   open the instance folder");
     println!("  worlds <instance>  list worlds");
     println!("  world-rm <instance> <world>  delete a world");
