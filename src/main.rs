@@ -12,6 +12,7 @@ mod modplatform;
 mod net;
 mod pack;
 mod settings;
+mod ui;
 
 use crate::instance::discover_instances;
 use crate::settings::GlobalSettings;
@@ -92,6 +93,8 @@ impl Render for MainWindow {
             .cloned()
             .map(|row| {
                 let launch_row = row.clone();
+                let open_name = row.name.clone();
+                let open_dir = row.dir.clone();
                 div()
                     .flex()
                     .items_center()
@@ -102,9 +105,14 @@ impl Render for MainWindow {
                     .border_color(rgb(0x313244))
                     .child(
                         div()
+                            .id(("open", index_of(&self.instances, &row.name)))
                             .flex()
                             .flex_col()
                             .gap_1()
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |_this, _, _, cx| {
+                                ui::open_instance(&open_name, &open_dir, cx);
+                            }))
                             .child(div().text_base().child(row.name.clone()))
                             .child(
                                 div()
