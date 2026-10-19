@@ -339,8 +339,12 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let format = args.get(3).map(|s| s.as_str()).unwrap_or("mrpack");
             cmd_export(data_root, name, Path::new(file), format)
         }
-        Some("help") | None => {
+        Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
+            Ok(())
+        }
+        Some("--version") | Some("-V") | Some("version") => {
+            println!("prism-gpui {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         Some(other) => Err(format!("unknown command: {other}")),

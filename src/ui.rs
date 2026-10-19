@@ -15,16 +15,18 @@ pub enum Tab {
     Worlds,
     Screenshots,
     Logs,
+    CrashReports,
 }
 
 impl Tab {
-    const ALL: [Tab; 6] = [
+    const ALL: [Tab; 7] = [
         Tab::Mods,
         Tab::ResourcePacks,
         Tab::ShaderPacks,
         Tab::Worlds,
         Tab::Screenshots,
         Tab::Logs,
+        Tab::CrashReports,
     ];
     fn label(&self) -> &'static str {
         match self {
@@ -34,6 +36,7 @@ impl Tab {
             Tab::Worlds => "Worlds",
             Tab::Screenshots => "Screenshots",
             Tab::Logs => "Logs",
+            Tab::CrashReports => "Crash Reports",
         }
     }
     fn subdir(&self) -> &'static [&'static str] {
@@ -44,6 +47,7 @@ impl Tab {
             Tab::Worlds => &["saves"],
             Tab::Screenshots => &["screenshots"],
             Tab::Logs => &["logs"],
+            Tab::CrashReports => &["crash-reports"],
         }
     }
 }
@@ -141,7 +145,10 @@ impl Render for InstanceView {
                 .cloned()
                 .enumerate()
                 .map(|(i, e)| {
-                    let openable = matches!(self.tab, Tab::Screenshots | Tab::Logs);
+                    let openable = matches!(
+                        self.tab,
+                        Tab::Screenshots | Tab::Logs | Tab::CrashReports
+                    );
                     let label = if openable {
                         let file = e.clone();
                         div()
