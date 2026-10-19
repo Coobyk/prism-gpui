@@ -172,13 +172,15 @@ impl Ftb {
     }
 
     /// Download every client file in a manifest into `game_dir`, verifying
-    /// sha1 when provided. Returns the number of files written.
+    /// sha1 when provided. Returns `(written, failures)`; failures are recorded
+    /// rather than aborting, since dead links are common in older packs.
     pub fn install_files(
         &self,
         manifest: &PackManifest,
         game_dir: &std::path::Path,
-    ) -> Result<usize, String> {
+    ) -> Result<(usize, Vec<String>), String> {
         let mut count = 0;
+        let mut failed = Vec::new();
         for f in &manifest.files {
             if f.url.is_empty() || f.serveronly {
                 continue;
@@ -194,10 +196,12 @@ impl Ftb {
             } else {
                 Some(f.sha1.as_str())
             };
-            crate::net::download_verified(&f.url, &dest, sha)?;
-            count += 1;
+            match crate::net::download_verified(&f.url, &dest, sha) {
+                Ok(()) => count += 1,
+                Err(e) => failed.push(format!("{rel}: {e}")),
+            }
         }
-        Ok(count)
+        Ok((count, failed))
     }
 
     /// Install a pack version into `game_dir` and return the manifest.
@@ -209,7 +213,13 @@ impl Ftb {
     ) -> Result<PackManifest, String> {
         let manifest = self.manifest(id, version)?;
         std::fs::create_dir_all(game_dir).map_err(|e| e.to_string())?;
-        self.install_files(&manifest, game_dir)?;
+        let (_, failed) = self.install_files(&manifest, game_dir)?;
+        if !failed.is_empty() {
+            eprintln!("{} files failed to download:", failed.len());
+            for f in failed.iter().take(20) {
+                eprintln!("  - {f}");
+            }
+        }
         Ok(manifest)
     }
 }

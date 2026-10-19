@@ -118,6 +118,12 @@ pub const SETTINGS: &[SettingDef] = &[
     SettingDef { key: "WrapperCommand", section: "General", default: "", kind: ValueKind::Str, label: "Wrapper command", page: "Custom commands" },
     SettingDef { key: "PreLaunchCommand", section: "General", default: "", kind: ValueKind::Str, label: "Pre-launch command", page: "Custom commands" },
     SettingDef { key: "PostExitCommand", section: "General", default: "", kind: ValueKind::Str, label: "Post-exit command", page: "Custom commands" },
+    // ---- Updates ----
+    SettingDef { key: "UpdateChannel", section: "General", default: "stable", kind: ValueKind::Enum(&["stable", "beta"]), label: "Update channel", page: "Updates" },
+    SettingDef { key: "AutoUpdate", section: "General", default: "false", kind: ValueKind::Bool, label: "Automatically download updates", page: "Updates" },
+    SettingDef { key: "CheckUpdateOnLaunch", section: "General", default: "true", kind: ValueKind::Bool, label: "Check for updates on launch", page: "Updates" },
+    SettingDef { key: "LastUpdateCheck", section: "General", default: "", kind: ValueKind::Str, label: "Last update check", page: "Updates" },
+    SettingDef { key: "SkippedUpdateVersion", section: "General", default: "", kind: ValueKind::Str, label: "Skipped version", page: "Updates" },
     // ---- Paths ----
     SettingDef { key: "InstanceDir", section: "General", default: "instances", kind: ValueKind::Path, label: "Instances directory", page: "Paths" },
     SettingDef { key: "CentralModsDir", section: "General", default: "mods", kind: ValueKind::Path, label: "Central mods directory", page: "Paths" },

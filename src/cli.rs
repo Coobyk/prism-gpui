@@ -407,6 +407,28 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
         Some("check-update") => {
             let r = crate::updater::latest_release()?;
             println!("latest Prism Launcher: {} ({})", r.tag_name, r.html_url);
+            if let Some(a) = crate::updater::select_asset(&r) {
+                println!(
+                    "asset for {}: {} ({} bytes)",
+                    crate::updater::platform_keyword(),
+                    a.name,
+                    a.size
+                );
+            } else {
+                println!("no installable asset found for this platform");
+            }
+            let mut settings = crate::settings::GlobalSettings::load(data_root);
+            settings.set("LastUpdateCheck", &now_unix().to_string());
+            let _ = settings.save();
+            Ok(())
+        }
+        Some("self-update") => {
+            let apply = args.iter().any(|a| a == "--apply");
+            cmd_self_update(data_root, apply)
+        }
+        Some("plugins") => {
+            let host = crate::plugin::PluginHost::discover(data_root);
+            host.print();
             Ok(())
         }
         Some("news") => {
@@ -682,6 +704,47 @@ fn cmd_install_pack(data_root: &Path, slug: &str, name: Option<&str>) -> Result<
     Ok(())
 }
 
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn cmd_self_update(data_root: &Path, apply: bool) -> Result<(), String> {
+    let release = crate::updater::latest_release()?;
+    if !crate::updater::is_newer(env!("CARGO_PKG_VERSION"), &release.tag_name) {
+        println!(
+            "already up to date ({} >= {})",
+            env!("CARGO_PKG_VERSION"),
+            release.tag_name
+        );
+        return Ok(());
+    }
+    println!(
+        "update available: {} → {}",
+        env!("CARGO_PKG_VERSION"),
+        release.tag_name
+    );
+    let asset =
+        crate::updater::select_asset(&release).ok_or("no installable asset for this platform")?;
+    println!("downloading {} ({} bytes)…", asset.name, asset.size);
+    let path = crate::updater::download_asset(asset, data_root)?;
+    println!("downloaded to {}", path.display());
+    if !apply {
+        println!("re-run with --apply to install it over the current binary");
+        return Ok(());
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let written = crate::updater::apply_update(&path, &exe)?;
+    println!(
+        "updated {} — restart to use {}",
+        written.display(),
+        release.tag_name
+    );
+    Ok(())
+}
+
 fn find_instance(data_root: &Path, name: &str) -> Result<instance::Instance, String> {
     instance::discover_instances(data_root)
         .into_iter()
@@ -834,13 +897,13 @@ fn cmd_install_mod(
         extra: String::new(),
     };
     let dest = inst.dir.join("minecraft").join(subdir);
-    let summary = crate::modplatform::platform::install(
+    let outcome = crate::modplatform::platform::install(
         &hit,
         &dest,
         mc.as_deref(),
         loader.as_deref(),
     )?;
-    println!("{summary}");
+    println!("{}", outcome.message);
     Ok(())
 }
 
@@ -885,7 +948,12 @@ fn cmd_install_technic(data_root: &Path, slug: &str, name: Option<&str>) -> Resu
     let dir_name = sanitize_name(name.unwrap_or(&pack.title()));
     let inst_dir = create_instance_with_components(data_root, &dir_name, &components)?;
     let game_dir = inst_dir.join("minecraft");
-    let summary = crate::modplatform::technic::Technic.install(slug, &game_dir)?;
+    let (summary, components) = crate::modplatform::technic::Technic.install(slug, &game_dir)?;
+    for (uid, version) in &components {
+        if let Err(e) = meta::set_component(&inst_dir, uid, version) {
+            eprintln!("warning: could not set component {uid}: {e}");
+        }
+    }
     println!("{summary} → {}", inst_dir.display());
     Ok(())
 }
@@ -917,7 +985,7 @@ fn cmd_install_atl(
     let dir_name = sanitize_name(name.unwrap_or(&pack.name));
     let inst_dir = create_instance_with_components(data_root, &dir_name, &components)?;
     let game_dir = inst_dir.join("minecraft");
-    let (n, blocked) = atl.install(&pack.safe_name(), &version, &game_dir)?;
+    let (n, blocked, failed) = atl.install(&pack.safe_name(), &version, &game_dir)?;
     println!(
         "installed ATLauncher pack {} v{version} ({n} files) → {}",
         pack.name,
@@ -927,6 +995,12 @@ fn cmd_install_atl(
         println!("mods needing manual download ({}):", blocked.len());
         for b in blocked {
             println!("  - {b}");
+        }
+    }
+    if !failed.is_empty() {
+        println!("downloads that failed ({}):", failed.len());
+        for f in failed {
+            println!("  - {f}");
         }
     }
     Ok(())

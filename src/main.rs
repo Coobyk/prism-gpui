@@ -19,6 +19,7 @@ mod modplatform;
 mod nbt;
 mod net;
 mod news;
+mod plugin;
 mod theme;
 mod pack;
 mod servers;

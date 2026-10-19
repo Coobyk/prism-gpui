@@ -295,6 +295,14 @@ pub fn search(
     }
 }
 
+/// Result of an install: a summary plus any loader components the pack
+/// implies (so the caller can populate an instance's component pack).
+#[derive(Debug, Clone, Default)]
+pub struct InstallOutcome {
+    pub message: String,
+    pub components: Vec<(String, String)>,
+}
+
 /// Install a search hit.
 ///
 /// * mods / resource packs / shaders → `dest` is the directory to place the file
@@ -306,7 +314,7 @@ pub fn install(
     dest: &Path,
     game_version: Option<&str>,
     loader: Option<&str>,
-) -> Result<String, String> {
+) -> Result<InstallOutcome, String> {
     match hit.platform {
         Platform::Modrinth => {
             let mr = crate::modplatform::modrinth::Modrinth;
@@ -317,14 +325,20 @@ pub fn install(
                 let file = mr.download_version_file(version, tmp.parent().unwrap())?;
                 let manifest = crate::pack::mrpack::install(&file, dest)?;
                 let _ = std::fs::remove_file(&file);
-                return Ok(format!(
-                    "installed Modrinth pack {} ({} files)",
-                    manifest.name,
-                    manifest.files.len()
-                ));
+                return Ok(InstallOutcome {
+                    message: format!(
+                        "installed Modrinth pack {} ({} files)",
+                        manifest.name,
+                        manifest.files.len()
+                    ),
+                    components: pack_components(&manifest.dependencies),
+                });
             }
             let path = mr.download_version_file(version, dest)?;
-            Ok(format!("installed {}", path.display()))
+            Ok(InstallOutcome {
+                message: format!("installed {}", path.display()),
+                components: vec![],
+            })
         }
         Platform::CurseForge => {
             let cf = crate::modplatform::curseforge::CurseForge;
@@ -342,30 +356,42 @@ pub fn install(
                 crate::net::download_verified(&url, &pack, None)?;
                 let manifest = crate::pack::curseforge::install(&pack, dest)?;
                 let _ = std::fs::remove_dir_all(&dir);
-                return Ok(format!(
-                    "installed CurseForge pack {} ({} files)",
-                    manifest.name,
-                    manifest.files.len()
-                ));
+                return Ok(InstallOutcome {
+                    message: format!(
+                        "installed CurseForge pack {} ({} files)",
+                        manifest.name,
+                        manifest.files.len()
+                    ),
+                    components: pack_components(&manifest.dependencies),
+                });
             }
             let path = cf.install_mod(&hit.id, game_version, loader_type, dest)?;
-            Ok(format!("installed {}", path.display()))
+            Ok(InstallOutcome {
+                message: format!("installed {}", path.display()),
+                components: vec![],
+            })
         }
         Platform::Ftb => {
             let version = hit.extra.parse::<u64>().ok();
             let manifest =
                 crate::modplatform::ftb::Ftb.install(hit.id.parse().unwrap_or(0), version, dest)?;
-            Ok(format!(
-                "installed FTB pack {} ({} files)",
-                manifest.name,
-                manifest.files.len()
-            ))
+            Ok(InstallOutcome {
+                message: format!(
+                    "installed FTB pack {} ({} files)",
+                    manifest.name,
+                    manifest.files.len()
+                ),
+                components: manifest.components(),
+            })
         }
         Platform::Technic => {
             let game_dir = dest.join("minecraft");
-            let summary =
+            let (message, components) =
                 crate::modplatform::technic::Technic.install(&hit.id, &game_dir)?;
-            Ok(summary)
+            Ok(InstallOutcome {
+                message,
+                components,
+            })
         }
         Platform::AtLauncher => {
             let version = hit
@@ -374,8 +400,11 @@ pub fn install(
                 .next()
                 .filter(|s| !s.is_empty())
                 .ok_or("pack version unknown")?;
+            let manifest = crate::modplatform::atlauncher::AtLauncher
+                .manifest(&hit.id, version)?;
+            let components = manifest.components();
             let game_dir = dest.join("minecraft");
-            let (n, blocked) =
+            let (n, blocked, failed) =
                 crate::modplatform::atlauncher::AtLauncher.install(&hit.id, version, &game_dir)?;
             let mut summary = format!("installed ATLauncher pack {} ({} files)", hit.title, n);
             if !blocked.is_empty() {
@@ -385,10 +414,37 @@ pub fn install(
                     blocked.join(", ")
                 ));
             }
-            Ok(summary)
+            if !failed.is_empty() {
+                summary.push_str(&format!("; {} files failed to download", failed.len()));
+            }
+            Ok(InstallOutcome {
+                message: summary,
+                components,
+            })
         }
         Platform::Packwiz => Err("use `install-packwiz <url>` for Packwiz packs".into()),
     }
+}
+
+/// Convert pack dependencies into `(prism uid, version)` components.
+pub fn pack_components(deps: &crate::pack::PackDependencies) -> Vec<(String, String)> {
+    let mut v = Vec::new();
+    if let Some(mc) = &deps.minecraft {
+        v.push(("net.minecraft".to_string(), mc.clone()));
+    }
+    if let Some(f) = &deps.fabric_loader {
+        v.push(("net.fabricmc.fabric-loader".to_string(), f.clone()));
+    }
+    if let Some(f) = &deps.forge {
+        v.push(("net.minecraftforge".to_string(), f.clone()));
+    }
+    if let Some(f) = &deps.neo_forge {
+        v.push(("net.neoforged".to_string(), f.clone()));
+    }
+    if let Some(f) = &deps.quilt_loader {
+        v.push(("org.quiltmc.quilt-loader".to_string(), f.clone()));
+    }
+    v
 }
 
 fn tmp_path(kind: &str, slug: &str) -> std::path::PathBuf {

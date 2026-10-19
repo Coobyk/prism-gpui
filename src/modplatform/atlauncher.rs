@@ -13,6 +13,30 @@ use serde::{Deserialize, Deserializer};
 
 pub const CDN_BASE: &str = "https://download.nodecdn.net/containers/atl/";
 
+/// A field that may be a string (libraries use `server` for a maven path) or a
+/// boolean (mods use `server` to mark server-side availability).
+#[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum StringOrBool {
+    String(String),
+    Bool(bool),
+}
+
+impl Default for StringOrBool {
+    fn default() -> Self {
+        StringOrBool::String(String::new())
+    }
+}
+
+impl StringOrBool {
+    pub fn as_str(&self) -> &str {
+        match self {
+            StringOrBool::String(s) => s,
+            StringOrBool::Bool(_) => "",
+        }
+    }
+}
+
 /// Deserialize a possibly-null value as its `Default`.
 fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
 where
@@ -83,6 +107,55 @@ pub struct AtManifest {
     pub configs: AtConfigs,
     #[serde(default)]
     pub messages: AtMessages,
+    #[serde(default)]
+    pub loader: Option<AtLoader>,
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct AtLoader {
+    #[serde(default, rename = "type", deserialize_with = "null_default")]
+    pub loader_type: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub version: String,
+}
+
+impl AtManifest {
+    /// Loader components as `(prism uid, version)` pairs.
+    pub fn components(&self) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        if !self.minecraft.is_empty() {
+            out.push(("net.minecraft".to_string(), self.minecraft.clone()));
+        }
+        if let Some(l) = &self.loader {
+            if let Some(uid) = loader_uid(&l.loader_type) {
+                out.push((uid.to_string(), l.version.clone()));
+            }
+        }
+        if out.len() <= 1 {
+            // Infer Forge from the manifest's `type = "forge"` entry.
+            if let Some(f) = self.mods.iter().find(|m| m.file_type.eq_ignore_ascii_case("forge")) {
+                let version = f
+                    .version
+                    .strip_prefix(&format!("{}-", self.minecraft))
+                    .unwrap_or(&f.version)
+                    .to_string();
+                if !version.is_empty() {
+                    out.push(("net.minecraftforge".to_string(), version));
+                }
+            }
+        }
+        out
+    }
+}
+
+fn loader_uid(name: &str) -> Option<&'static str> {
+    match name.to_ascii_lowercase().as_str() {
+        "forge" => Some("net.minecraftforge"),
+        "fabric" => Some("net.fabricmc.fabric-loader"),
+        "neoforge" => Some("net.neoforged"),
+        "quilt" => Some("org.quiltmc.quilt-loader"),
+        _ => None,
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -128,9 +201,9 @@ pub struct AtFile {
     pub md5: String,
     #[serde(default, deserialize_with = "null_default")]
     pub version: String,
-    /// Maven-style server path for libraries.
-    #[serde(default, deserialize_with = "null_default")]
-    pub server: String,
+    /// Maven-style server path for libraries (a bool on mod entries).
+    #[serde(default)]
+    pub server: StringOrBool,
     #[serde(default, deserialize_with = "null_default")]
     pub path: String,
 }
@@ -196,7 +269,7 @@ impl AtLauncher {
     /// Fetch a pack version manifest.
     pub fn manifest(&self, safe_name: &str, version: &str) -> Result<AtManifest, String> {
         let url = format!(
-            "{CDN_BASE}packs/{}/{}/Configs.json",
+            "{CDN_BASE}packs/{}/versions/{}/Configs.json",
             urlencode(safe_name),
             urlencode(version)
         );
@@ -206,18 +279,20 @@ impl AtLauncher {
 
     /// Install a pack version into `game_dir`.
     ///
-    /// Returns the number of files downloaded and the list of mods that can
-    /// only be fetched through a browser.
+    /// Returns `(downloaded, blocked, failed)`: mods that can only be fetched
+    /// through a browser, and files whose download failed (dead links are
+    /// common in older packs).
     pub fn install(
         &self,
         safe_name: &str,
         version: &str,
         game_dir: &std::path::Path,
-    ) -> Result<(usize, Vec<String>), String> {
+    ) -> Result<(usize, Vec<String>, Vec<String>), String> {
         let manifest = self.manifest(safe_name, version)?;
         std::fs::create_dir_all(game_dir).map_err(|e| e.to_string())?;
         let mut n = 0usize;
         let mut blocked = Vec::new();
+        let mut failed = Vec::new();
 
         for file in manifest.mods.iter().chain(manifest.configs.files.iter()) {
             let Some(dir) = file.target_dir(&manifest.minecraft) else {
@@ -241,17 +316,18 @@ impl AtLauncher {
             let dest = crate::fs::safe_join(game_dir, &format!("{dir}/{name}"))
                 .ok_or_else(|| format!("unsafe path in ATLauncher manifest: {dir}/{name}"))?;
             let md5 = if file.md5.is_empty() { None } else { Some(file.md5.as_str()) };
-            crate::net::download_verified_md5(&url, &dest, md5)
-                .map_err(|e| format!("{}: {e}", file.name))?;
-            n += 1;
+            match crate::net::download_verified_md5(&url, &dest, md5) {
+                Ok(()) => n += 1,
+                Err(e) => failed.push(format!("{}: {e}", file.name)),
+            }
         }
 
         for lib in &manifest.libraries {
             let Some(url) = lib.download_url() else {
                 continue;
             };
-            let rel = if !lib.server.is_empty() {
-                lib.server.clone()
+            let rel = if !lib.server.as_str().is_empty() {
+                lib.server.as_str().to_string()
             } else if !lib.file.is_empty() {
                 lib.file.clone()
             } else {
@@ -260,15 +336,17 @@ impl AtLauncher {
             let dest = crate::fs::safe_join(game_dir, &format!("libraries/{rel}"))
                 .ok_or_else(|| format!("unsafe library path: {rel}"))?;
             let md5 = if lib.md5.is_empty() { None } else { Some(lib.md5.as_str()) };
-            crate::net::download_verified_md5(&url, &dest, md5)?;
-            n += 1;
+            match crate::net::download_verified_md5(&url, &dest, md5) {
+                Ok(()) => n += 1,
+                Err(e) => failed.push(format!("library {}: {e}", lib.file)),
+            }
         }
 
         // Config archives are published as a single zip when the manifest does
         // not enumerate config files.
         if manifest.configs.files.is_empty() && !manifest.configs.no_configs {
             let url = format!(
-                "{CDN_BASE}packs/{}/{}/Configs.zip",
+                "{CDN_BASE}packs/{}/versions/{}/Configs.zip",
                 urlencode(safe_name),
                 urlencode(version)
             );
@@ -284,7 +362,7 @@ impl AtLauncher {
             }
         }
 
-        Ok((n, blocked))
+        Ok((n, blocked, failed))
     }
 }
 
@@ -364,6 +442,6 @@ mod tests {
         .unwrap();
         assert_eq!(m.mods.len(), 1);
         assert_eq!(m.mods[0].file, "a.jar");
-        assert_eq!(m.libraries[0].server, "g/l/1/l.jar");
+        assert_eq!(m.libraries[0].server.as_str(), "g/l/1/l.jar");
     }
 }

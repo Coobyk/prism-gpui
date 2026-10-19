@@ -181,7 +181,13 @@ impl Technic {
     }
 
     /// Install a pack into `game_dir` (the instance's `minecraft` folder).
-    pub fn install(&self, slug: &str, game_dir: &std::path::Path) -> Result<String, String> {
+    ///
+    /// Returns a summary plus the Minecraft version the pack targets.
+    pub fn install(
+        &self,
+        slug: &str,
+        game_dir: &std::path::Path,
+    ) -> Result<(String, Vec<(String, String)>), String> {
         let pack = self.pack(slug)?;
         std::fs::create_dir_all(game_dir).map_err(|e| e.to_string())?;
         if let Some(solder) = pack.solder.as_deref().filter(|s| !s.is_empty()) {
@@ -213,9 +219,12 @@ impl Technic {
                 n += 1;
             }
             let _ = std::fs::remove_dir_all(&tmp);
-            return Ok(format!(
-                "installed Technic pack {} (MC {mc}, {n} archives)",
-                pack.title()
+            return Ok((
+                format!(
+                    "installed Technic pack {} (MC {mc}, {n} archives)",
+                    pack.title()
+                ),
+                vec![("net.minecraft".to_string(), mc.clone())],
             ));
         }
         let url = pack
@@ -227,7 +236,12 @@ impl Technic {
         crate::net::download_verified(url, &tmp, None)?;
         crate::fs::extract_zip(&tmp, game_dir, true)?;
         let _ = std::fs::remove_file(&tmp);
-        Ok(format!("installed Technic pack {}", pack.title()))
+        let mc = if pack.minecraft.is_empty() {
+            Vec::new()
+        } else {
+            vec![("net.minecraft".to_string(), pack.minecraft.clone())]
+        };
+        Ok((format!("installed Technic pack {}", pack.title()), mc))
     }
 }
 

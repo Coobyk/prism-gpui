@@ -1,7 +1,8 @@
-//! Mod / resource-pack / shader / modpack browser (Modrinth).
-//! Mirrors launcher/ui/pages/modplatform.
+//! Content browser: mods, modpacks, resource packs and shaders across every
+//! supported platform. Mirrors launcher/ui/pages/modplatform.
 
-use crate::modplatform::modrinth::Modrinth;
+use crate::meta;
+use crate::modplatform::{ContentKind, Platform, PlatformHit, SearchQuery, platform};
 use crate::theme::Theme;
 use crate::widgets::text_input::TextInput;
 use gpui::{
@@ -10,58 +11,26 @@ use gpui::{
 };
 use std::path::PathBuf;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Mod,
-    Modpack,
-    ResourcePack,
-    Shader,
-}
-
-impl Kind {
-    const ALL: [Kind; 4] = [Kind::Mod, Kind::Modpack, Kind::ResourcePack, Kind::Shader];
-
-    fn label(self) -> &'static str {
-        match self {
-            Kind::Mod => "Mods",
-            Kind::Modpack => "Modpacks",
-            Kind::ResourcePack => "Resource Packs",
-            Kind::Shader => "Shaders",
-        }
-    }
-
-    fn facet(self) -> &'static str {
-        match self {
-            Kind::Mod => "mod",
-            Kind::Modpack => "modpack",
-            Kind::ResourcePack => "resourcepack",
-            Kind::Shader => "shader",
-        }
-    }
-
-    /// Subdirectory of `minecraft/` where the installed file belongs.
-    fn subdir(self) -> &'static str {
-        match self {
-            Kind::Mod => "mods",
-            Kind::Modpack => "",
-            Kind::ResourcePack => "resourcepacks",
-            Kind::Shader => "shaderpacks",
-        }
-    }
-}
-
 #[derive(Clone)]
 struct HitRow {
     title: String,
+    id: String,
     slug: String,
     description: String,
     downloads: u64,
+    platform: Platform,
+    kind: ContentKind,
+    extra: String,
 }
 
 pub struct ModBrowser {
     input: Entity<TextInput>,
     hits: Vec<HitRow>,
-    kind: Kind,
+    kind: ContentKind,
+    platform: Platform,
+    /// Minecraft version + loader of the target instance, used to filter.
+    game_version: Option<String>,
+    loader: Option<String>,
     data_root: PathBuf,
     instance_dir: PathBuf,
     status: SharedString,
@@ -75,11 +44,15 @@ impl ModBrowser {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| TextInput::new("Search Modrinth…", cx));
+        let input = cx.new(|cx| TextInput::new("Search for content…", cx));
+        let (game_version, loader) = target_of(&instance_dir);
         Self {
             input,
             hits: Vec::new(),
-            kind: Kind::Mod,
+            kind: ContentKind::Mod,
+            platform: Platform::Modrinth,
+            game_version,
+            loader,
             data_root,
             instance_dir,
             status: "Choose a category, type a query, press Search".into(),
@@ -89,45 +62,61 @@ impl ModBrowser {
 
     fn install_dir(&self) -> PathBuf {
         let base = self.instance_dir.join("minecraft");
-        let sub = self.kind.subdir();
-        if sub.is_empty() {
-            base
-        } else {
-            base.join(sub)
+        match self.kind {
+            ContentKind::Mod => base.join("mods"),
+            ContentKind::ResourcePack => base.join("resourcepacks"),
+            ContentKind::Shader => base.join("shaderpacks"),
+            ContentKind::Modpack => base,
         }
+    }
+
+    /// Platforms available for the selected kind.
+    fn platforms(&self) -> Vec<Platform> {
+        Platform::for_kind(self.kind)
     }
 
     fn search(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).text().trim().to_string();
-        if query.is_empty() {
+        let platform = self.platform;
+        let kind = self.kind;
+        let q = SearchQuery::new(query)
+            .with_game_version(self.game_version.clone())
+            .with_loader(self.loader.clone());
+        if q.text.is_empty() {
             self.status = "Enter a query".into();
             cx.notify();
             return;
         }
-        let facet = self.kind.facet().to_string();
-        self.status = format!("Searching {}…", self.kind.label()).into();
+        self.status = format!("Searching {}…", platform.label()).into();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let hits = cx
+            let result = cx
                 .background_executor()
-                .spawn(async move {
-                    Modrinth
-                        .search_typed(&query, Some(&facet), None, None)
-                        .unwrap_or_default()
-                })
+                .spawn(async move { platform::search(platform, kind, &q) })
                 .await;
-            let rows: Vec<HitRow> = hits
-                .into_iter()
-                .map(|h| HitRow {
-                    title: h.title,
-                    slug: h.slug,
-                    description: h.description,
-                    downloads: h.downloads,
-                })
-                .collect();
             this.update(cx, |this, cx| {
-                this.status = format!("{} results", rows.len()).into();
-                this.hits = rows;
+                match result {
+                    Ok(hits) => {
+                        this.status = format!("{} results", hits.len()).into();
+                        this.hits = hits
+                            .into_iter()
+                            .map(|h| HitRow {
+                                title: h.title,
+                                id: h.id,
+                                slug: h.slug,
+                                description: h.description,
+                                downloads: h.downloads,
+                                platform: h.platform,
+                                kind: h.kind,
+                                extra: h.extra,
+                            })
+                            .collect();
+                    }
+                    Err(e) => {
+                        this.status = format!("Search failed: {e}").into();
+                        this.hits.clear();
+                    }
+                }
                 cx.notify();
             })
             .ok();
@@ -135,76 +124,60 @@ impl ModBrowser {
         .detach();
     }
 
-    fn install(&mut self, slug: String, cx: &mut Context<Self>) {
-        let kind = self.kind;
+    fn install(&mut self, row: HitRow, cx: &mut Context<Self>) {
         let dir = self.install_dir();
         let instances_root = crate::instance::instances_dir(&self.data_root);
-        self.status = format!("Installing {slug}…").into();
+        let settings = crate::settings::GlobalSettings::load(&self.data_root);
+        let game_version = self.game_version.clone();
+        let loader = self.loader.clone();
+        self.status = format!("Installing {}…", row.title).into();
         cx.notify();
         cx.spawn(async move |this, cx| {
             let msg = cx
                 .background_executor()
                 .spawn(async move {
-                    let provider = Modrinth;
-                    let versions = match provider.versions(&slug, None, None) {
-                        Ok(v) => v,
-                        Err(e) => return format!("Lookup failed: {e}"),
+                    let hit = PlatformHit {
+                        platform: row.platform,
+                        kind: row.kind,
+                        id: row.id.clone(),
+                        slug: row.slug.clone(),
+                        title: row.title.clone(),
+                        description: row.description.clone(),
+                        downloads: row.downloads,
+                        extra: row.extra.clone(),
                     };
-                    let Some(v) = versions.first() else {
-                        return "No versions found".to_string();
-                    };
-                    if kind == Kind::Modpack {
-                        // Download the .mrpack and unpack into a fresh instance.
-                        let inst_dir = instances_root.join(&slug);
-                        if let Err(e) = std::fs::create_dir_all(&inst_dir) {
+                    let dest = if row.kind == ContentKind::Modpack {
+                        let dir_name = sanitize(&row.slug);
+                        let inst_dir = instances_root.join(&dir_name);
+                        if inst_dir.exists() {
+                            return format!("instance already exists: {dir_name}");
+                        }
+                        if let Err(e) = std::fs::create_dir_all(inst_dir.join("minecraft")) {
                             return format!("mkdir failed: {e}");
                         }
-                        if let Err(e) = provider.download_version_file(v, &inst_dir) {
-                            return format!("Download failed: {e}");
-                        }
-                        let Some(pack) = crate::fs::list_files(&inst_dir)
-                            .into_iter()
-                            .find(|p| p.extension().map(|e| e == "mrpack").unwrap_or(false))
-                        else {
-                            return "pack download produced no .mrpack".to_string();
-                        };
-                        match crate::pack::mrpack::install(&pack, &inst_dir) {
-                            Ok(manifest) => {
-                                let cfg = "[General]\nInstanceType=OneSix\nConfigVersion=1.3\n";
-                                let _ = std::fs::write(inst_dir.join("instance.cfg"), cfg);
-                                let deps = &manifest.dependencies;
-                                if let Some(mc) = &deps.minecraft {
-                                    let _ = crate::meta::set_component(&inst_dir, "net.minecraft", mc);
-                                }
-                                if let Some(f) = &deps.fabric_loader {
-                                    let _ = crate::meta::set_component(
-                                        &inst_dir,
-                                        "net.fabricmc.fabric-loader",
-                                        f,
-                                    );
-                                }
-                                if let Some(f) = &deps.forge {
-                                    let _ = crate::meta::set_component(&inst_dir, "net.minecraftforge", f);
-                                }
-                                if let Some(f) = &deps.neo_forge {
-                                    let _ = crate::meta::set_component(&inst_dir, "net.neoforged", f);
-                                }
-                                if let Some(f) = &deps.quilt_loader {
-                                    let _ = crate::meta::set_component(
-                                        &inst_dir,
-                                        "org.quiltmc.quilt-loader",
-                                        f,
-                                    );
-                                }
-                                format!("Installed modpack into {}", inst_dir.display())
-                            }
-                            Err(e) => format!("Extract failed: {e}"),
-                        }
+                        let cfg = format!(
+                            "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nname={dir_name}\nMinMemAlloc={}\nMaxMemAlloc={}\n",
+                            settings.min_mem(),
+                            settings.max_mem()
+                        );
+                        let _ = std::fs::write(inst_dir.join("instance.cfg"), cfg);
+                        inst_dir
                     } else {
-                        match provider.download_version_file(v, &dir) {
-                            Ok(p) => format!("Installed {}", p.display()),
-                            Err(e) => format!("Download failed: {e}"),
+                        dir.clone()
+                    };
+                    match platform::install(
+                        &hit,
+                        &dest,
+                        game_version.as_deref(),
+                        loader.as_deref(),
+                    ) {
+                        Ok(outcome) => {
+                            for (uid, version) in &outcome.components {
+                                let _ = meta::set_component(&dest, uid, version);
+                            }
+                            outcome.message
                         }
+                        Err(e) => format!("Install failed: {e}"),
                     }
                 })
                 .await;
@@ -218,18 +191,61 @@ impl ModBrowser {
     }
 }
 
+fn sanitize(name: &str) -> String {
+    name.replace(['/', '\\', ':'], "_").trim().to_string()
+}
+
+/// Minecraft version + loader of an instance, for search filters.
+fn target_of(instance_dir: &std::path::Path) -> (Option<String>, Option<String>) {
+    let mut mc = None;
+    let mut loader = None;
+    if let Some(pack) = meta::read_component_pack(instance_dir) {
+        for c in &pack.components {
+            if c.uid == "net.minecraft" {
+                mc = Some(c.version.clone());
+            } else if !c.dependency_only {
+                let name = match c.uid.as_str() {
+                    "net.fabricmc.fabric-loader" => "fabric",
+                    "net.minecraftforge" => "forge",
+                    "net.neoforged" => "neoforge",
+                    "org.quiltmc.quilt-loader" => "quilt",
+                    _ => continue,
+                };
+                loader = Some(name.to_string());
+            }
+        }
+    }
+    (mc, loader)
+}
+
+fn compact(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
 impl Render for ModBrowser {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        let kinds = [
+            ContentKind::Mod,
+            ContentKind::Modpack,
+            ContentKind::ResourcePack,
+            ContentKind::Shader,
+        ];
 
-        let kind_tabs = Kind::ALL
+        let kind_tabs = kinds
             .iter()
             .enumerate()
             .map(|(i, k)| {
                 let selected = *k == self.kind;
                 let k2 = *k;
                 div()
-                    .id(i)
+                    .id(("kind", i))
                     .px_3()
                     .py_1()
                     .rounded_md()
@@ -240,6 +256,36 @@ impl Render for ModBrowser {
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.kind = k2;
                         this.hits.clear();
+                        let avail = this.platforms();
+                        if !avail.contains(&this.platform) {
+                            this.platform = avail[0];
+                        }
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
+        let platforms = self.platforms();
+        let platform_tabs = platforms
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let selected = *p == self.platform;
+                let p2 = *p;
+                div()
+                    .id(("plat", i))
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.background) })
+                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.subtext) })
+                    .child(p.label())
+                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                        this.platform = p2;
+                        this.hits.clear();
+                        this.status = format!("{} selected", p2.label()).into();
                         cx.notify();
                     }))
                     .into_any_element()
@@ -252,7 +298,7 @@ impl Render for ModBrowser {
             .cloned()
             .enumerate()
             .map(|(i, h)| {
-                let slug = h.slug.clone();
+                let h2 = h.clone();
                 div()
                     .flex()
                     .items_center()
@@ -266,18 +312,30 @@ impl Render for ModBrowser {
                             .flex()
                             .flex_col()
                             .gap_1()
-                            .max_w(px(500.))
-                            .child(div().text_base().child(h.title.clone()))
+                            .max_w(px(520.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(div().text_base().child(h.title.clone()))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(theme.subtext))
+                                            .child(h.platform.label()),
+                                    ),
+                            )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(rgb(theme.subtext))
-                                    .child(format!("{} · {} dl", h.description, h.downloads)),
+                                    .child(format!("{} · {} dl", h.description, compact(h.downloads))),
                             ),
                     )
                     .child(
                         div()
-                            .id(i)
+                            .id(("install", i))
                             .px_3()
                             .py_1()
                             .rounded_md()
@@ -286,12 +344,18 @@ impl Render for ModBrowser {
                             .cursor_pointer()
                             .child("Install")
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                this.install(slug.clone(), cx);
+                                this.install(h2.clone(), cx);
                             })),
                     )
                     .into_any_element()
             })
             .collect();
+
+        let target = match (&self.game_version, &self.loader) {
+            (Some(mc), Some(l)) => format!("{mc} · {l}"),
+            (Some(mc), None) => mc.clone(),
+            _ => "unknown target".to_string(),
+        };
 
         div()
             .flex()
@@ -309,6 +373,7 @@ impl Render for ModBrowser {
                     .border_b_1()
                     .border_color(rgb(theme.border))
                     .child(div().flex().gap_2().children(kind_tabs))
+                    .child(div().flex().gap_2().children(platform_tabs))
                     .child(
                         div()
                             .flex()
@@ -333,6 +398,12 @@ impl Render for ModBrowser {
                                 div()
                                     .text_sm()
                                     .text_color(rgb(theme.subtext))
+                                    .child(format!("target: {target}")),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(theme.subtext))
                                     .child(self.status.clone()),
                             ),
                     ),
@@ -347,7 +418,7 @@ pub fn open_mod_browser(
     theme: Theme,
     cx: &mut App,
 ) -> Option<gpui::WindowHandle<ModBrowser>> {
-    let bounds = Bounds::centered(None, size(px(760.), px(600.)), cx);
+    let bounds = Bounds::centered(None, size(px(860.), px(640.)), cx);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
