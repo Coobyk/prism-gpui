@@ -1,5 +1,5 @@
 // Prism Launcher — Rust + GPUI rewrite
-// Modules: instance discovery, global settings, GPUI shell.
+// Modules: instance discovery, global settings, launch, GPUI shell.
 
 mod auth;
 mod instance;
@@ -17,34 +17,124 @@ use gpui::{
     prelude::*, px, rgb, size,
 };
 use std::path::PathBuf;
+use std::sync::Arc;
+
+#[derive(Clone)]
+struct InstanceRow {
+    name: String,
+    dir: PathBuf,
+    version: String,
+    loader: String,
+    mem: String,
+}
 
 struct MainWindow {
     title: SharedString,
-    instances: Vec<String>,
+    instances: Vec<InstanceRow>,
+    java_path: Option<PathBuf>,
     java_count: usize,
     data_root: PathBuf,
     theme: String,
+    status: SharedString,
+}
+
+impl MainWindow {
+    fn launch(&mut self, row: InstanceRow, cx: &mut Context<Self>) {
+        let Some(java) = self.java_path.clone() else {
+            self.status = "No Java installation found".into();
+            cx.notify();
+            return;
+        };
+        let root = self.data_root.clone();
+        self.status = format!("Launching {}…", row.name).into();
+        cx.notify();
+        let name = row.name.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let Some(profile) = launch::build_profile(&row.dir, &root, &java) else {
+                        return Err("Could not build launch profile (missing metadata)".to_string());
+                    };
+                    let mut cmd = profile.jvm_command();
+                    match cmd.spawn() {
+                        Ok(mut child) => match child.wait() {
+                            Ok(st) => Ok(format!("{name} exited: {st}")),
+                            Err(e) => Err(format!("wait failed: {e}")),
+                        },
+                        Err(e) => Err(format!("spawn failed: {e}")),
+                    }
+                })
+                .await;
+            let msg = match result {
+                Ok(m) => m,
+                Err(e) => format!("Launch failed: {e}"),
+            };
+            this.update(cx, |this, cx| {
+                this.status = msg.into();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
 }
 
 impl Render for MainWindow {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let instance_items = if self.instances.is_empty() {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows: Vec<_> = self
+            .instances
+            .iter()
+            .cloned()
+            .map(|row| {
+                let launch_row = row.clone();
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(rgb(0x313244))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_base().child(row.name.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xa6adc8))
+                                    .child(format!("{} · {} · {}", row.version, row.loader, row.mem)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id(("launch", index_of(&self.instances, &row.name)))
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(0x89b4fa))
+                            .text_color(rgb(0x11111b))
+                            .cursor_pointer()
+                            .child("Launch")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.launch(launch_row.clone(), cx);
+                            })),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+
+        let body = if rows.is_empty() {
             vec![div()
-                .child("No instances found.")
+                .p_4()
+                .text_color(rgb(0xa6adc8))
+                .child("No instances found. Set PRISM_DATA_DIR to a Prism data directory.")
                 .into_any_element()]
         } else {
-            self.instances
-                .iter()
-                .map(|n| {
-                    div()
-                        .px_3()
-                        .py_2()
-                        .border_b_1()
-                        .border_color(rgb(0x313244))
-                        .child(n.clone())
-                        .into_any_element()
-                })
-                .collect()
+            rows
         };
 
         div()
@@ -59,23 +149,29 @@ impl Render for MainWindow {
                     .items_center()
                     .h(px(40.0))
                     .px_4()
+                    .gap_4()
                     .bg(rgb(0x181825))
                     .border_b_1()
                     .border_color(rgb(0x313244))
                     .child(self.title.clone())
                     .child(
                         div()
-                            .ml_4()
                             .text_sm()
                             .text_color(rgb(0xa6adc8))
-                            .child(format!("{} instances", self.instances.len()))
+                            .child(format!("{} instances", self.instances.len())),
+                    )
                     .child(
                         div()
-                            .ml_4()
                             .text_sm()
                             .text_color(rgb(0xa6adc8))
                             .child(format!("{} java", self.java_count)),
-                    ),
+                    )
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(0xa6adc8))
+                            .child(self.status.clone()),
                     ),
             )
             .child(
@@ -84,13 +180,16 @@ impl Render for MainWindow {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    .children(instance_items),
+                    .children(body),
             )
     }
 }
 
+fn index_of(rows: &[InstanceRow], name: &str) -> usize {
+    rows.iter().position(|r| r.name == name).unwrap_or(0)
+}
+
 fn data_root() -> PathBuf {
-    // Prism default data dir; override via env PRISM_DATA_DIR
     if let Ok(p) = std::env::var("PRISM_DATA_DIR") {
         return PathBuf::from(p);
     }
@@ -99,18 +198,46 @@ fn data_root() -> PathBuf {
         .join("PrismLauncher")
 }
 
+fn instance_rows(root: &PathBuf) -> Vec<InstanceRow> {
+    discover_instances(root)
+        .into_iter()
+        .map(|inst| {
+            let mut version = String::from("?");
+            let mut loader = String::from("vanilla");
+            if let Some(pack) = meta::read_component_pack(&inst.dir) {
+                for c in &pack.components {
+                    if c.uid == "net.minecraft" {
+                        version = c.version.clone();
+                    } else if c.uid != "org.lwjgl3" && !c.dependency_only {
+                        loader = format!("{} {}", c.cached_name, c.version);
+                    }
+                }
+            }
+            InstanceRow {
+                name: inst.name.clone(),
+                dir: inst.dir.clone(),
+                version,
+                loader,
+                mem: format!("{}–{} MB", inst.min_mem, inst.max_mem),
+            }
+        })
+        .collect()
+}
+
 fn main() {
     let root = data_root();
     let settings = GlobalSettings::load(&root);
-    let instances = discover_instances(&root);
-    let instance_names: Vec<String> = instances.iter().map(|i| i.name.clone()).collect();
-    let java_count = java::discover_java(&root).len();
+    let rows = instance_rows(&root);
+    let java = java::discover_java(&root);
+    let java_path = java.first().map(|j| j.path.clone());
+    let java_count = java.len();
     let theme = settings.theme.clone();
 
+    let shared_root = Arc::new(root);
     Application::new().run(move |cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(1024.), px(720.)), cx);
-        let names = instance_names.clone();
-        let root = root.clone();
+        let rows = rows.clone();
+        let root = shared_root.clone();
         let theme = theme.clone();
         cx.open_window(
             WindowOptions {
@@ -122,12 +249,15 @@ fn main() {
                 ..Default::default()
             },
             move |_, cx| {
-                cx.new(|_| MainWindow {
+                let root = root.clone();
+                cx.new(move |_| MainWindow {
                     title: "Prism Launcher".into(),
-                    instances: names,
-                    java_count: java_count,
-                    data_root: root,
+                    instances: rows,
+                    java_path: java_path.clone(),
+                    java_count,
+                    data_root: (*root).clone(),
                     theme,
+                    status: "Ready".into(),
                 })
             },
         )
