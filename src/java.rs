@@ -82,3 +82,105 @@ pub fn discover_java(data_root: &Path) -> Vec<JavaInstall> {
     }
     out
 }
+
+// ---- Automatic Java runtime download (Mojang java-runtime CDN) ----
+
+const RUNTIMES_INDEX: &str =
+    "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
+
+fn os_key() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows-x64"
+    } else if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "mac-os-arm64"
+        } else {
+            "mac-os"
+        }
+    } else if cfg!(target_arch = "aarch64") {
+        "linux"
+    } else {
+        "linux"
+    }
+}
+
+/// Download a Mojang Java runtime matching `major` into `<data_root>/java/<name>`.
+/// Returns the path to the `java` binary.
+pub fn download_runtime(
+    data_root: &Path,
+    component: &str,
+    major: &str,
+) -> Result<PathBuf, String> {
+    let body = crate::net::get_string(RUNTIMES_INDEX)?;
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let entry = json
+        .get(component)
+        .and_then(|c| c.get(os_key()))
+        .and_then(|a| a.as_array())
+        .and_then(|arr| arr.iter().find(|r| r.get("version").and_then(|v| v.get("name")).and_then(|n| n.as_str()) == Some(major)))
+        .or_else(|| {
+            json.get(component)
+                .and_then(|c| c.get(os_key()))
+                .and_then(|a| a.as_array())
+                .and_then(|arr| arr.first())
+        })
+        .ok_or_else(|| format!("no runtime for {component} {major} on {}", os_key()))?;
+
+    let manifest_url = entry
+        .get("manifest")
+        .and_then(|m| m.get("url"))
+        .and_then(|u| u.as_str())
+        .ok_or("runtime has no manifest")?;
+
+    let dest_root = data_root.join("java").join(component);
+    let manifest = crate::net::get_string(manifest_url)?;
+    let mf: serde_json::Value = serde_json::from_str(&manifest).map_err(|e| e.to_string())?;
+    let files = mf
+        .get("files")
+        .and_then(|f| f.as_object())
+        .ok_or("runtime manifest has no files")?;
+
+    for (rel, info) in files {
+        if info.get("type").and_then(|t| t.as_str()) == Some("directory") {
+            std::fs::create_dir_all(dest_root.join(rel)).map_err(|e| e.to_string())?;
+            continue;
+        }
+        let Some(download) = info.get("downloads").and_then(|d| d.get("raw")) else {
+            continue;
+        };
+        let url = download.get("url").and_then(|u| u.as_str()).unwrap_or("");
+        if url.is_empty() {
+            continue;
+        }
+        let sha1 = download.get("sha1").and_then(|s| s.as_str());
+        let dest = crate::fs::safe_join(&dest_root, rel)
+            .ok_or_else(|| format!("unsafe path in runtime manifest: {rel}"))?;
+        crate::net::download_verified(url, &dest, sha1)?;
+    }
+
+    let bin = dest_root.join("bin").join("java");
+    if bin.is_file() {
+        // Ensure the extracted binary is executable on Unix.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&bin) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                let _ = std::fs::set_permissions(&bin, perms);
+            }
+        }
+        Ok(bin)
+    } else {
+        Err(format!("runtime downloaded but java binary missing: {}", bin.display()))
+    }
+}
+
+/// Ensure a Java runtime for `major` exists (download if needed).
+pub fn ensure_runtime(data_root: &Path, component: &str, major: &str) -> Result<PathBuf, String> {
+    let bin = data_root.join("java").join(component).join("bin").join("java");
+    if bin.is_file() {
+        return Ok(bin);
+    }
+    download_runtime(data_root, component, major)
+}

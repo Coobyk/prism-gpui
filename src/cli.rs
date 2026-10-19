@@ -44,6 +44,15 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("duplicated to {}", dir.display());
             Ok(())
         }
+        Some("java-download") => {
+            let comp = args
+                .get(1)
+                .ok_or("usage: java-download <component> <major>")?;
+            let major = args.get(2).ok_or("usage: java-download <component> <major>")?;
+            let bin = java::ensure_runtime(data_root, comp, major)?;
+            println!("java: {}", bin.display());
+            Ok(())
+        }
         Some("update") => {
             let name = args.get(1).ok_or("usage: update <instance>")?;
             cmd_update(data_root, name)
@@ -85,6 +94,7 @@ fn print_help() {
     println!("prism-gpui <command>");
     println!("  list              list instances");
     println!("  java              list Java installations");
+    println!("  java-download <component> <major>  download a Java runtime");
     println!("  create <name> <mc-version>  create an instance");
     println!("  rm <name>         delete an instance");
     println!("  rename <from> <to>  rename an instance");
