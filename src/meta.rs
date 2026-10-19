@@ -43,14 +43,14 @@ pub struct VersionJson {
     pub id: String,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct AssetIndex {
     pub id: String,
     #[serde(default)]
     pub url: String,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct Arguments {
     #[serde(default)]
     pub game: Vec<serde_json::Value>,
