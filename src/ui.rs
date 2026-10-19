@@ -180,6 +180,38 @@ impl Render for InstanceView {
                                 crate::modbrowser::open_mod_browser(dir, theme, cx);
                             })),
                     )
+                    .child(
+                        div()
+                            .id("inst-settings")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Settings")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                if let Some(inst) = crate::instance::Instance::load(&this.dir) {
+                                    crate::ui::open_instance_settings(this.dir.clone(), inst, theme, cx);
+                                }
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("open-folder")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Open Folder")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, _cx| {
+                                let _ = crate::desktop::open_path(&this.dir.join("minecraft"));
+                            })),
+                    )
                     .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
             )
             .child(
@@ -415,6 +447,117 @@ pub fn open_settings(
             ..Default::default()
         },
         move |_, cx| cx.new(|_| SettingsView::new(settings, theme)),
+    )
+    .ok()
+}
+
+// ---- Instance settings window ----
+
+pub struct InstanceSettingsView {
+    dir: PathBuf,
+    min_input: Entity<TextInput>,
+    max_input: Entity<TextInput>,
+    java_input: Entity<TextInput>,
+    status: SharedString,
+    theme: Theme,
+}
+
+impl InstanceSettingsView {
+    pub fn new(dir: PathBuf, instance: &crate::instance::Instance, theme: Theme, cx: &mut Context<Self>) -> Self {
+        let min_input = cx.new(|cx| {
+            let mut t = TextInput::new("Min memory (MB)", cx);
+            t.set_text(instance.min_mem.to_string(), cx);
+            t
+        });
+        let max_input = cx.new(|cx| {
+            let mut t = TextInput::new("Max memory (MB)", cx);
+            t.set_text(instance.max_mem.to_string(), cx);
+            t
+        });
+        let java_input = cx.new(|cx| {
+            let mut t = TextInput::new("Java path", cx);
+            t.set_text(instance.java_path.clone(), cx);
+            t
+        });
+        Self {
+            dir,
+            min_input,
+            max_input,
+            java_input,
+            status: "Ready".into(),
+            theme,
+        }
+    }
+
+    fn save(&mut self, cx: &mut Context<Self>) {
+        let Some(mut inst) = crate::instance::Instance::load(&self.dir) else {
+            self.status = "Could not load instance.cfg".into();
+            cx.notify();
+            return;
+        };
+        let min = self.min_input.read(cx).text().trim().to_string();
+        let max = self.max_input.read(cx).text().trim().to_string();
+        let java = self.java_input.read(cx).text().trim().to_string();
+        inst.set("MinMemAlloc", &min);
+        inst.set("MaxMemAlloc", &max);
+        inst.set("JavaPath", &java);
+        match inst.save() {
+            Ok(()) => self.status = "Saved".into(),
+            Err(e) => self.status = format!("Save failed: {e}").into(),
+        }
+        cx.notify();
+    }
+}
+
+impl Render for InstanceSettingsView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_4()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child("Instance Settings")
+            .child(div().w(px(320.)).child(self.min_input.clone()))
+            .child(div().w(px(320.)).child(self.max_input.clone()))
+            .child(div().w(px(520.)).child(self.java_input.clone()))
+            .child(
+                div()
+                    .id("save-instance-settings")
+                    .px_3()
+                    .py_1()
+                    .w(px(100.))
+                    .rounded_md()
+                    .bg(rgb(theme.accent))
+                    .text_color(rgb(theme.on_accent))
+                    .cursor_pointer()
+                    .child("Save")
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
+            )
+            .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+    }
+}
+
+pub fn open_instance_settings(
+    dir: PathBuf,
+    instance: crate::instance::Instance,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<InstanceSettingsView>> {
+    let bounds = Bounds::centered(None, size(px(600.), px(360.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Instance Settings — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|cx| InstanceSettingsView::new(dir, &instance, theme, cx)),
     )
     .ok()
 }
