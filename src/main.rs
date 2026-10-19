@@ -8,6 +8,7 @@ mod java;
 mod launch;
 mod meta;
 mod modplatform;
+mod net;
 mod settings;
 
 use crate::instance::discover_instances;

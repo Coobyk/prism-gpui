@@ -130,6 +130,68 @@ pub fn classpath(libs_dir: &Path, version: &VersionJson) -> Vec<std::path::PathB
     out
 }
 
+impl Library {
+    /// Resolve the download URL for this library's artifact.
+    pub fn artifact_url(&self) -> Option<String> {
+        if let Some(a) = self.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
+            if !a.url.is_empty() {
+                return Some(a.url.clone());
+            }
+        }
+        let path = self.maven_path()?;
+        let base = self
+            .url
+            .clone()
+            .unwrap_or_else(|| "https://libraries.minecraft.net/".to_string());
+        Some(format!("{}{}", base, path))
+    }
+
+    pub fn artifact_sha1(&self) -> Option<&str> {
+        self.downloads
+            .as_ref()
+            .and_then(|d| d.artifact.as_ref())
+            .map(|a| a.sha1.as_str())
+            .filter(|s| !s.is_empty())
+    }
+}
+
+/// Ensure all of a version's libraries are present under `<data_root>/libraries`.
+/// Returns the number of files downloaded.
+pub fn ensure_libraries(
+    data_root: &Path,
+    version: &VersionJson,
+) -> Result<usize, String> {
+    let libs_dir = data_root.join("libraries");
+    let mut downloaded = 0;
+    for lib in &version.libraries {
+        let Some(rel) = lib.maven_path() else { continue };
+        let Some(url) = lib.artifact_url() else { continue };
+        let dest = libs_dir.join(&rel);
+        let before = dest.is_file();
+        crate::net::download_verified(&url, &dest, lib.artifact_sha1())?;
+        if !before && dest.is_file() {
+            downloaded += 1;
+        }
+    }
+    Ok(downloaded)
+}
+
+/// Ensure the asset index file is present; returns its path.
+pub fn ensure_asset_index(data_root: &Path, version: &VersionJson) -> Result<Option<std::path::PathBuf>, String> {
+    let Some(ai) = &version.asset_index else {
+        return Ok(None);
+    };
+    if ai.url.is_empty() {
+        return Ok(None);
+    }
+    let dest = data_root
+        .join("assets")
+        .join("indexes")
+        .join(format!("{}.json", ai.id));
+    crate::net::download_verified(&ai.url, &dest, None)?;
+    Ok(Some(dest))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +212,19 @@ mod tests {
             "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar"
         );
     }
+    #[test]
+    fn artifact_url_derived() {
+        let lib = Library {
+            name: "org.ow2.asm:asm:9.10.1".into(),
+            url: Some("https://maven.fabricmc.net/".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            lib.artifact_url().unwrap(),
+            "https://maven.fabricmc.net/org/ow2/asm/asm/9.10.1/asm-9.10.1.jar"
+        );
+    }
+
     #[test]
     fn maven_path_derived() {
         let lib = Library {

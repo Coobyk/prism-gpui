@@ -17,6 +17,10 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let name = args.get(1).ok_or("usage: launch <instance>")?;
             cmd_launch(data_root, name)
         }
+        Some("update") => {
+            let name = args.get(1).ok_or("usage: update <instance>")?;
+            cmd_update(data_root, name)
+        }
         Some("install") => {
             let name = args.get(1).ok_or("usage: install <instance> <slug>")?;
             let slug = args.get(2).ok_or("usage: install <instance> <slug>")?;
@@ -34,6 +38,7 @@ fn print_help() {
     println!("prism-gpui <command>");
     println!("  list              list instances");
     println!("  java              list Java installations");
+    println!("  update <instance>  download missing libraries and assets");
     println!("  search <query>    search Modrinth");
     println!("  install <instance> <slug>  install a Modrinth mod");
     println!("  launch <instance> launch an instance (foreground)");
@@ -87,6 +92,26 @@ fn cmd_search(query: &str) {
     for h in hits {
         println!("{:<40} {:<30} {} dl", h.title, h.slug, h.downloads);
     }
+}
+
+fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
+    let inst = instance::discover_instances(data_root)
+        .into_iter()
+        .find(|i| i.name == name)
+        .ok_or_else(|| format!("instance not found: {name}"))?;
+    let pack = meta::read_component_pack(&inst.dir).ok_or("no mmc-pack.json")?;
+    let meta_dir = data_root.join("meta");
+    let mut total = 0usize;
+    for c in &pack.components {
+        let path = meta_dir.join(&c.uid).join(format!("{}.json", c.version));
+        let Some(v) = meta::read_version_json(&path) else {
+            continue;
+        };
+        total += meta::ensure_libraries(data_root, &v)?;
+        meta::ensure_asset_index(data_root, &v)?;
+    }
+    println!("updated {name}: {total} files downloaded");
+    Ok(())
 }
 
 fn cmd_install(data_root: &Path, name: &str, slug: &str) -> Result<(), String> {
