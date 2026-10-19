@@ -3,6 +3,7 @@
 
 mod auth;
 mod cli;
+mod desktop;
 mod console;
 mod fs;
 mod instance;
@@ -18,6 +19,7 @@ mod pack;
 mod settings;
 mod ui;
 mod widgets;
+mod worlds;
 
 use crate::instance::discover_instances;
 use crate::settings::GlobalSettings;

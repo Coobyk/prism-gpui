@@ -53,6 +53,34 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("java: {}", bin.display());
             Ok(())
         }
+        Some("open") => {
+            let name = args.get(1).ok_or("usage: open <instance>")?;
+            let inst = find_instance(data_root, name)?;
+            crate::desktop::open_path(&inst.dir.join("minecraft"))?;
+            println!("opened {}", inst.dir.display());
+            Ok(())
+        }
+        Some("worlds") => {
+            let name = args.get(1).ok_or("usage: worlds <instance>")?;
+            let inst = find_instance(data_root, name)?;
+            for w in crate::worlds::list_worlds(&inst.dir) {
+                println!(
+                    "{:<30} {:<8} {}",
+                    w.name,
+                    if w.has_level_dat { "valid" } else { "?" },
+                    human_size(w.size_bytes)
+                );
+            }
+            Ok(())
+        }
+        Some("world-rm") => {
+            let name = args.get(1).ok_or("usage: world-rm <instance> <world>")?;
+            let world = args.get(2).ok_or("usage: world-rm <instance> <world>")?;
+            let inst = find_instance(data_root, name)?;
+            crate::worlds::delete_world(&inst.dir, world)?;
+            println!("deleted world {world}");
+            Ok(())
+        }
         Some("news") => {
             cmd_news()
         }
@@ -114,6 +142,9 @@ fn print_help() {
     println!("  packinfo <file>   inspect a modpack");
     println!("  import <file> [name]  import a modpack");
     println!("  export <instance> <file> [format]  export (mrpack|curseforge|mmc)");
+    println!("  open <instance>   open the instance folder");
+    println!("  worlds <instance>  list worlds");
+    println!("  world-rm <instance> <world>  delete a world");
     println!("  news              show the Prism news feed");
     println!("  log <instance> [lines]  tail an instance log");
     println!("  launch <instance> launch an instance (foreground)");
@@ -187,6 +218,24 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
     }
     println!("updated {name}: {total} files downloaded");
     Ok(())
+}
+
+fn find_instance(data_root: &Path, name: &str) -> Result<instance::Instance, String> {
+    instance::discover_instances(data_root)
+        .into_iter()
+        .find(|i| i.name == name)
+        .ok_or_else(|| format!("instance not found: {name}"))
+}
+
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut v = bytes as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    format!("{v:.1} {}", UNITS[i])
 }
 
 fn cmd_news() -> Result<(), String> {
