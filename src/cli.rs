@@ -53,6 +53,14 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("java: {}", bin.display());
             Ok(())
         }
+        Some("news") => {
+            cmd_news()
+        }
+        Some("log") => {
+            let name = args.get(1).ok_or("usage: log <instance> [lines]")?;
+            let lines = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(50);
+            cmd_log(data_root, name, lines)
+        }
         Some("update") => {
             let name = args.get(1).ok_or("usage: update <instance>")?;
             cmd_update(data_root, name)
@@ -106,6 +114,8 @@ fn print_help() {
     println!("  packinfo <file>   inspect a modpack");
     println!("  import <file> [name]  import a modpack");
     println!("  export <instance> <file> [format]  export (mrpack|curseforge|mmc)");
+    println!("  news              show the Prism news feed");
+    println!("  log <instance> [lines]  tail an instance log");
     println!("  launch <instance> launch an instance (foreground)");
 }
 
@@ -176,6 +186,33 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
         meta::ensure_asset_index(data_root, &v)?;
     }
     println!("updated {name}: {total} files downloaded");
+    Ok(())
+}
+
+fn cmd_news() -> Result<(), String> {
+    let entries = crate::news::fetch()?;
+    if entries.is_empty() {
+        println!("(no news entries)");
+    }
+    for e in entries {
+        println!("{} — {}", e.title, e.url);
+    }
+    Ok(())
+}
+
+fn cmd_log(data_root: &Path, name: &str, lines: usize) -> Result<(), String> {
+    let inst = instance::discover_instances(data_root)
+        .into_iter()
+        .find(|i| i.name == name)
+        .ok_or_else(|| format!("instance not found: {name}"))?;
+    let log = inst.dir.join("minecraft").join("logs").join("latest.log");
+    let text = std::fs::read_to_string(&log)
+        .map_err(|e| format!("could not read {}: {e}", log.display()))?;
+    let all: Vec<&str> = text.lines().collect();
+    let start = all.len().saturating_sub(lines);
+    for line in &all[start..] {
+        println!("{line}");
+    }
     Ok(())
 }
 
