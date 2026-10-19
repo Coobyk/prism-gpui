@@ -137,3 +137,49 @@ mod tests {
         assert_eq!(loaded.active_account().unwrap().uuid, "u2");
     }
 }
+
+/// Derive the offline-mode UUID for a username (MD5 of "OfflinePlayer:<name>",
+/// with UUID v3 version/variant bits), matching vanilla behaviour.
+pub fn offline_uuid(name: &str) -> String {
+    use md5::{Digest, Md5};
+    let mut hasher = Md5::new();
+    hasher.update(format!("OfflinePlayer:{name}").as_bytes());
+    let mut bytes = hasher.finalize();
+    bytes[6] = (bytes[6] & 0x0f) | 0x30; // version 3
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+/// Build an offline (unauthenticated) account for local/testing use.
+pub fn offline_account(name: &str) -> Account {
+    Account {
+        username: name.to_string(),
+        uuid: offline_uuid(name),
+        access_token: "offline".to_string(),
+        refresh_token: String::new(),
+        expires_at: 0,
+    }
+}
+
+#[cfg(test)]
+mod offline_tests {
+    use super::*;
+    #[test]
+    fn offline_uuid_is_stable_and_versioned() {
+        let u = offline_uuid("Player");
+        assert_eq!(u.len(), 36);
+        // UUID v3 -> third group starts with '3'.
+        let third = u.split('-').nth(2).unwrap();
+        assert!(third.starts_with('3'));
+        assert_eq!(u, offline_uuid("Player"));
+        assert_ne!(u, offline_uuid("Someone"));
+    }
+}

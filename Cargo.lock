@@ -3867,6 +3867,7 @@ dependencies = [
  "dirs 5.0.1",
  "flate2",
  "gpui",
+ "md-5",
  "serde",
  "serde_json",
  "sha1",

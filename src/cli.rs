@@ -29,6 +29,15 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             cmd_install_pack(data_root, slug, name)
         }
         Some("login") => cmd_login(data_root),
+        Some("add-offline") => {
+            let username = args.get(1).ok_or("usage: add-offline <username>")?;
+            let account = crate::accounts::offline_account(username);
+            let mut store = crate::accounts::AccountStore::load(data_root);
+            store.upsert(account.clone());
+            store.save(data_root)?;
+            println!("added offline account {} ({})", account.username, account.uuid);
+            Ok(())
+        }
         Some("accounts") => {
             let store = crate::accounts::AccountStore::load(data_root);
             if store.accounts.is_empty() {
@@ -247,6 +256,7 @@ fn print_help() {
     println!("  check-mods <instance>  look up installed mods on Modrinth");
     println!("  install-pack <slug> [name]  install a Modrinth modpack");
     println!("  login             sign in with a Microsoft account");
+    println!("  add-offline <name>  add an offline account");
     println!("  accounts          list saved accounts");
     println!("  logout <uuid|name>  remove an account");
     println!("  set-component <instance> <uid> <version>  change a component version");
