@@ -3872,6 +3872,7 @@ dependencies = [
  "sha1",
  "tempfile",
  "toml 0.8.23",
+ "unicode-segmentation",
  "ureq",
  "uuid",
  "walkdir",

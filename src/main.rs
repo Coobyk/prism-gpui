@@ -8,6 +8,7 @@ mod instance;
 mod java;
 mod launch;
 mod meta;
+mod modbrowser;
 mod modplatform;
 mod net;
 mod news;
@@ -15,6 +16,7 @@ mod theme;
 mod pack;
 mod settings;
 mod ui;
+mod widgets;
 
 use crate::instance::discover_instances;
 use crate::settings::GlobalSettings;

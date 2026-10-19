@@ -165,6 +165,21 @@ impl Render for InstanceView {
                     .border_b_1()
                     .border_color(rgb(theme.border))
                     .child(self.name.clone())
+                    .child(
+                        div()
+                            .id("browse-mods")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child("Browse Mods")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                let dir = this.dir.join("minecraft").join("mods");
+                                crate::modbrowser::open_mod_browser(dir, theme, cx);
+                            })),
+                    )
                     .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
             )
             .child(
