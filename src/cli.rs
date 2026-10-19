@@ -21,6 +21,11 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let name = args.get(1).ok_or("usage: update <instance>")?;
             cmd_update(data_root, name)
         }
+        Some("assets") => {
+            let name = args.get(1).ok_or("usage: assets <instance> [limit]")?;
+            let limit = args.get(2).and_then(|s| s.parse::<usize>().ok());
+            cmd_assets(data_root, name, limit)
+        }
         Some("install") => {
             let name = args.get(1).ok_or("usage: install <instance> <slug>")?;
             let slug = args.get(2).ok_or("usage: install <instance> <slug>")?;
@@ -39,6 +44,7 @@ fn print_help() {
     println!("  list              list instances");
     println!("  java              list Java installations");
     println!("  update <instance>  download missing libraries and assets");
+    println!("  assets <instance> [limit]  download missing assets");
     println!("  search <query>    search Modrinth");
     println!("  install <instance> <slug>  install a Modrinth mod");
     println!("  launch <instance> launch an instance (foreground)");
@@ -111,6 +117,30 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
         meta::ensure_asset_index(data_root, &v)?;
     }
     println!("updated {name}: {total} files downloaded");
+    Ok(())
+}
+
+fn cmd_assets(data_root: &Path, name: &str, limit: Option<usize>) -> Result<(), String> {
+    let inst = instance::discover_instances(data_root)
+        .into_iter()
+        .find(|i| i.name == name)
+        .ok_or_else(|| format!("instance not found: {name}"))?;
+    let (game_version, _) = instance_game_loader(&inst.dir);
+    let Some(gv) = game_version else {
+        return Err("could not determine Minecraft version".into());
+    };
+    let index_path = data_root
+        .join("assets")
+        .join("indexes")
+        .join(format!("{gv}.json"));
+    if !index_path.is_file() {
+        return Err(format!(
+            "asset index missing at {} (run `update {name}` first)",
+            index_path.display()
+        ));
+    }
+    let n = meta::ensure_assets(data_root, &index_path, limit)?;
+    println!("downloaded {n} assets");
     Ok(())
 }
 

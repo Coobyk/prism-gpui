@@ -192,6 +192,50 @@ pub fn ensure_asset_index(data_root: &Path, version: &VersionJson) -> Result<Opt
     Ok(Some(dest))
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct AssetIndexFile {
+    #[serde(default)]
+    pub objects: std::collections::BTreeMap<String, AssetObject>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct AssetObject {
+    pub hash: String,
+    pub size: u64,
+}
+
+/// Ensure all assets referenced by the index are present under
+/// `<data_root>/assets/objects`. `limit` caps downloads (None = all).
+pub fn ensure_assets(
+    data_root: &Path,
+    index_path: &Path,
+    limit: Option<usize>,
+) -> Result<usize, String> {
+    let text = std::fs::read_to_string(index_path).map_err(|e| e.to_string())?;
+    let index: AssetIndexFile = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let objects_dir = data_root.join("assets").join("objects");
+    let mut downloaded = 0;
+    for obj in index.objects.values() {
+        if let Some(l) = limit {
+            if downloaded >= l {
+                break;
+            }
+        }
+        let sub = &obj.hash[..2];
+        let dest = objects_dir.join(sub).join(&obj.hash);
+        if dest.is_file() {
+            continue;
+        }
+        let url = format!(
+            "https://resources.download.minecraft.net/{}/{}",
+            sub, obj.hash
+        );
+        crate::net::download_verified(&url, &dest, Some(&obj.hash))?;
+        downloaded += 1;
+    }
+    Ok(downloaded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +256,15 @@ mod tests {
             "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar"
         );
     }
+    #[test]
+    fn parses_asset_index() {
+        let t = r#"{"objects":{"minecraft/sounds/a.ogg":{"hash":"aabbcc","size":10}}}"#;
+        let idx: AssetIndexFile = serde_json::from_str(t).unwrap();
+        let obj = idx.objects.get("minecraft/sounds/a.ogg").unwrap();
+        assert_eq!(obj.hash, "aabbcc");
+        assert_eq!(obj.size, 10);
+    }
+
     #[test]
     fn artifact_url_derived() {
         let lib = Library {
