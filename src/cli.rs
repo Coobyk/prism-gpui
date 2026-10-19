@@ -13,6 +13,21 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             cmd_search(q);
             Ok(())
         }
+        Some("search-type") => {
+            let kind = args.get(1).ok_or("usage: search-type <mod|modpack|resourcepack|shader> <query>")?;
+            let q = args.get(2).ok_or("usage: search-type <type> <query>")?;
+            cmd_search_typed(kind, q);
+            Ok(())
+        }
+        Some("check-mods") => {
+            let name = args.get(1).ok_or("usage: check-mods <instance>")?;
+            cmd_check_mods(data_root, name)
+        }
+        Some("install-pack") => {
+            let slug = args.get(1).ok_or("usage: install-pack <slug> [name]")?;
+            let name = args.get(2).map(|s| s.as_str());
+            cmd_install_pack(data_root, slug, name)
+        }
         Some("launch") => {
             let name = args.get(1).ok_or("usage: launch <instance>")?;
             cmd_launch(data_root, name)
@@ -202,6 +217,9 @@ fn print_help() {
     println!("  components <instance>  list components");
     println!("  versions <uid>    list available versions for a component");
     println!("  add-fabric <instance> [loader]  install Fabric loader into an instance");
+    println!("  search-type <type> <query>  search Modrinth by project type");
+    println!("  check-mods <instance>  look up installed mods on Modrinth");
+    println!("  install-pack <slug> [name]  install a Modrinth modpack");
     println!("  set-component <instance> <uid> <version>  change a component version");
     println!("  open <instance>   open the instance folder");
     println!("  worlds <instance>  list worlds");
@@ -279,6 +297,88 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
         meta::ensure_asset_index(data_root, &v)?;
     }
     println!("updated {name}: {total} files downloaded");
+    Ok(())
+}
+
+fn cmd_search_typed(kind: &str, query: &str) {
+    let provider = Modrinth;
+    match provider.search_typed(query, Some(kind), None, None) {
+        Ok(hits) => {
+            if hits.is_empty() {
+                println!("(no results)");
+            }
+            for h in hits {
+                println!("{:<16} {:<28} {}", h.project_type, h.slug, h.title);
+            }
+        }
+        Err(e) => println!("search failed: {e}"),
+    }
+}
+
+fn cmd_check_mods(data_root: &Path, name: &str) -> Result<(), String> {
+    let inst = find_instance(data_root, name)?;
+    let mods_dir = inst.dir.join("minecraft").join("mods");
+    let provider = Modrinth;
+    let mut checked = 0;
+    for path in crate::fs::list_files(&mods_dir) {
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
+        if !matches!(ext.as_deref(), Some("jar")) {
+            continue;
+        }
+        let Some(sha1) = crate::net::sha1_file(&path) else {
+            continue;
+        };
+        checked += 1;
+        match provider.version_from_hash(&sha1) {
+            Ok(version) => {
+                let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                println!(
+                    "{:<40} current {} ({})",
+                    file_name,
+                    version.version_number,
+                    version.game_versions.first().cloned().unwrap_or_default()
+                );
+            }
+            Err(_) => {
+                let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                println!("{file_name:<40} (not on Modrinth / unknown)");
+            }
+        }
+    }
+    println!("checked {checked} mods");
+    Ok(())
+}
+
+fn cmd_install_pack(data_root: &Path, slug: &str, name: Option<&str>) -> Result<(), String> {
+    let provider = Modrinth;
+    let versions = provider.versions(slug, None, None)?;
+    let version = versions.first().ok_or("no versions for pack")?;
+    let instances_root = data_root.join("instances");
+    let dir_name = name.unwrap_or(slug).replace(['/', '\\'], "_");
+    let inst_dir = instances_root.join(&dir_name);
+    std::fs::create_dir_all(&inst_dir).map_err(|e| e.to_string())?;
+    provider.download_version_file(version, &inst_dir)?;
+    // The downloaded file is the .mrpack; locate it by extension.
+    let downloaded = crate::fs::list_files(&inst_dir)
+        .into_iter()
+        .find(|p| p.extension().map(|e| e == "mrpack").unwrap_or(false))
+        .ok_or("pack download did not produce a .mrpack")?;
+    crate::pack::mrpack::install(&downloaded, &inst_dir)?;
+    let cfg = "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nMinMemAlloc=512\nMaxMemAlloc=4096\n";
+    std::fs::write(inst_dir.join("instance.cfg"), cfg).map_err(|e| e.to_string())?;
+    // Persist pack dependencies into mmc-pack.json.
+    if let Ok(m) = crate::pack::mrpack::manifest_from_pack(&downloaded) {
+        if let Some(mc) = &m.dependencies.minecraft {
+            let _ = meta::set_component(&inst_dir, "net.minecraft", mc);
+        }
+        if let Some(f) = &m.dependencies.fabric_loader {
+            let _ = meta::set_component(&inst_dir, "net.fabricmc.fabric-loader", f);
+        }
+        if let Some(f) = &m.dependencies.forge {
+            let _ = meta::set_component(&inst_dir, "net.minecraftforge", f);
+        }
+    }
+    println!("installed pack {} → {}", slug, inst_dir.display());
     Ok(())
 }
 

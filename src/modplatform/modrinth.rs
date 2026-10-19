@@ -15,9 +15,22 @@ struct Hit {
     title: String,
     description: String,
     downloads: u64,
+    #[serde(default)]
+    project_type: String,
 }
 
 pub struct Modrinth;
+
+/// A search hit enriched with its project type.
+#[derive(Debug, Clone)]
+pub struct SearchHit {
+    pub id: String,
+    pub slug: String,
+    pub title: String,
+    pub description: String,
+    pub downloads: u64,
+    pub project_type: String,
+}
 
 impl crate::modplatform::ModProvider for Modrinth {
     fn name(&self) -> &'static str {
@@ -88,6 +101,56 @@ pub struct VersionFile {
 }
 
 impl Modrinth {
+    /// Search with a project-type facet (mod, modpack, resourcepack, shader, datapack).
+    pub fn search_typed(
+        &self,
+        query: &str,
+        project_type: Option<&str>,
+        loader: Option<&str>,
+        game_version: Option<&str>,
+    ) -> Result<Vec<SearchHit>, String> {
+        let mut facets: Vec<String> = Vec::new();
+        if let Some(t) = project_type {
+            facets.push(format!("[\"project_type:{t}\"]"));
+        }
+        if let Some(l) = loader {
+            facets.push(format!("[\"categories:{l}\"]"));
+        }
+        if let Some(g) = game_version {
+            facets.push(format!("[\"versions:{g}\"]"));
+        }
+        let mut url = format!(
+            "https://api.modrinth.com/v2/search?query={}&limit=20",
+            urlencoding(query)
+        );
+        if !facets.is_empty() {
+            url.push_str(&format!("&facets=[{}]", facets.join(",")));
+        }
+        let body = crate::net::get_string(&url)?;
+        let parsed: SearchResponse = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        Ok(parsed
+            .hits
+            .into_iter()
+            .map(|h| SearchHit {
+                id: h.project_id,
+                slug: h.slug,
+                title: h.title,
+                description: h.description,
+                downloads: h.downloads,
+                project_type: h.project_type,
+            })
+            .collect())
+    }
+
+    /// Look up a project + version from a local file's sha1 hash.
+    pub fn version_from_hash(&self, sha1: &str) -> Result<VersionInfo, String> {
+        let url = format!(
+            "https://api.modrinth.com/v2/version_file/{sha1}?algorithm=sha1"
+        );
+        let body = crate::net::get_string(&url)?;
+        serde_json::from_str(&body).map_err(|e| e.to_string())
+    }
+
     /// List versions for a project, optionally filtered by loader and game version.
     pub fn versions(
         &self,
