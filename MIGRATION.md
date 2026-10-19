@@ -132,3 +132,64 @@ Roughly 6-12 engineer-months for MVP parity with core launcher; 18-24 for full
 parity including all mod platforms. Recommend incremental coexistence: keep C++
 Prism Launcher shipping while Rust port reaches parity, sharing the same
 instance directory format.
+
+## 8. Implementation status
+
+The `prism-gpui` binary implements the following today (all covered by unit
+tests; `cargo test` green):
+
+### Data / core
+- `instance.rs` — instance discovery, `instance.cfg` read/write, create /
+  remove / rename / duplicate.
+- `settings.rs` — global `prismlauncher.cfg` read/write (`GlobalSettings`).
+- `meta.rs` — Prism component pack (`mmc-pack.json`), Mojang version JSON,
+  component index listing, library/asset download, `set_component`.
+- `java.rs` — Java detection + automatic Mojang runtime download.
+- `launch.rs` — launch profile builder (classpath, JVM/game args, substitutions)
+  with account credentials injected.
+- `net.rs` — sha1-verified downloads, meta cache helpers.
+- `fs.rs` — recursive copy, zip-slip-safe joins, file listing.
+- `worlds.rs` — world (save) list / delete / rename.
+- `accounts.rs` + `auth/mod.rs` — Microsoft device-code → Xbox → XSTS →
+  Minecraft chain; account store; vanilla-compatible offline UUIDs.
+- `updater.rs` — GitHub release check with semver comparison.
+- `news.rs` — Prism news feed (Atom/RSS parser).
+- `i18n.rs` — JSON translation catalog with key fallback.
+
+### Mod platforms
+- `modplatform/modrinth.rs` — search (typed facets), versions, version lookup by
+  file hash, downloads.
+- `modplatform/curseforge.rs`, `ftb.rs`, `technic.rs`, `atlauncher.rs`,
+  `packwiz.rs` — provider clients.
+
+### Modpacks
+- `pack/mrpack.rs` — Modrinth pack import/export (+ dependency extraction).
+- `pack/curseforge.rs` — CurseForge manifest parse + override extraction +
+  export.
+- `pack/mmc.rs` — Prism/MultiMC instance zip import/export.
+
+### UI (GPUI)
+- Main window: instance list, launch, new instance, settings, news.
+- Instance window: tabs (Mods, Resource Packs, Shaders, Worlds, Screenshots,
+  Logs), launch, browse content, open folder, per-tab file actions
+  (enable/disable mods, open screenshots/logs).
+- Content browser: Modrinth search across mods / modpacks / resource packs /
+  shaders with install (modpacks become new instances).
+- Console window streaming live launch output.
+- Settings, New Instance, Instance Settings, and News windows.
+- `theme.rs` — Catppuccin-based light/dark palettes; `widgets/text_input.rs` —
+  reusable GPUI text field.
+
+### CLI (headless)
+`list java java-download search search-type check-mods install install-pack
+import export packinfo create rm rename duplicate components versions
+set-component add-fabric launch log news check-update open worlds world-rm
+login add-offline accounts logout`.
+
+### Still open
+- Forge/NeoForge/Quilt in-process installers (WiX-style).
+- Skin viewer / icon rendering (needs a GPUI asset source).
+- Full settings page parity, accessibility, virtualized lists.
+- CurseForge downloads need `CF_API_KEY`; FTB/Technic/ATLauncher clients are
+  scaffolded but not wired into a UI.
+- Auto-update application (check only today).
