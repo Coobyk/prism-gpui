@@ -296,6 +296,21 @@ impl Render for InstanceView {
                                 let _ = crate::desktop::open_path(&this.dir.join("minecraft"));
                             })),
                     )
+                    .child(
+                        div()
+                            .id("view-screenshots")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Screenshots")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                crate::ui::open_screenshots(this.dir.clone(), theme, cx);
+                            })),
+                    )
                     .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
             )
             .child(
@@ -764,6 +779,175 @@ pub fn open_news(theme: Theme, cx: &mut App) -> Option<gpui::WindowHandle<NewsVi
             ..Default::default()
         },
         move |_, cx| cx.new(|cx| NewsView::new(theme, cx)),
+    )
+    .ok()
+}
+
+// ---- Screenshot viewer ----
+
+use gpui::{Image, ImageFormat, img};
+use std::sync::Arc;
+
+pub struct ScreenshotView {
+    dir: PathBuf,
+    files: Vec<String>,
+    selected: Option<usize>,
+    theme: Theme,
+}
+
+impl ScreenshotView {
+    pub fn new(dir: PathBuf, theme: Theme) -> Self {
+        let files = list_image_files(&dir);
+        let selected = if files.is_empty() { None } else { Some(0) };
+        Self {
+            dir,
+            files,
+            selected,
+            theme,
+        }
+    }
+
+    fn current_bytes(&self, cx: &Context<Self>) -> Option<Arc<Image>> {
+        let i = self.selected?;
+        let name = self.files.get(i)?;
+        let path = self.dir.join(name);
+        let bytes = std::fs::read(&path).ok()?;
+        let format = match path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .as_deref()
+        {
+            Some("jpg") | Some("jpeg") => ImageFormat::Jpeg,
+            Some("webp") => ImageFormat::Webp,
+            Some("gif") => ImageFormat::Gif,
+            _ => ImageFormat::Png,
+        };
+        let _ = cx;
+        Some(Arc::new(Image::from_bytes(format, bytes)))
+    }
+}
+
+fn list_image_files(dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let lower = name.to_lowercase();
+            if lower.ends_with(".png")
+                || lower.ends_with(".jpg")
+                || lower.ends_with(".jpeg")
+                || lower.ends_with(".webp")
+            {
+                out.push(name);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+impl Render for ScreenshotView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let image = self.current_bytes(cx);
+        let count = self.files.len();
+        let selected = self.selected;
+
+        let list: Vec<_> = self
+            .files
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, name)| {
+                let is_sel = selected == Some(i);
+                div()
+                    .id(i)
+                    .px_2()
+                    .py_1()
+                    .cursor_pointer()
+                    .bg(if is_sel { rgb(theme.accent) } else { rgb(theme.surface) })
+                    .text_color(if is_sel { rgb(theme.on_accent) } else { rgb(theme.text) })
+                    .child(name)
+                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                        this.selected = Some(i);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        let preview = match image {
+            Some(img_arc) => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(img(img_arc).max_w(px(720.)).max_h(px(540.)))
+                .into_any_element(),
+            None => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(theme.subtext))
+                .child(if count == 0 { "No screenshots" } else { "Select a screenshot" })
+                .into_any_element(),
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .h(px(36.0))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(format!("Screenshots ({count})")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .w(px(220.))
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .border_r_1()
+                            .border_color(rgb(theme.border))
+                            .children(list),
+                    )
+                    .child(preview),
+            )
+    }
+}
+
+pub fn open_screenshots(
+    instance_dir: PathBuf,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<ScreenshotView>> {
+    let dir = instance_dir.join("minecraft").join("screenshots");
+    let bounds = Bounds::centered(None, size(px(960.), px(620.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Screenshots — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|_| ScreenshotView::new(dir, theme)),
     )
     .ok()
 }
