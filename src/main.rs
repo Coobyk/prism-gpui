@@ -2,6 +2,7 @@
 // Modules: instance discovery, global settings, launch, GPUI shell.
 
 mod auth;
+mod cli;
 mod instance;
 mod java;
 mod launch;
@@ -226,6 +227,16 @@ fn instance_rows(root: &PathBuf) -> Vec<InstanceRow> {
 
 fn main() {
     let root = data_root();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(first) = args.first() {
+        if first != "--gui" {
+            if let Err(e) = cli::run(&args, &root) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+    }
     let settings = GlobalSettings::load(&root);
     let rows = instance_rows(&root);
     let java = java::discover_java(&root);

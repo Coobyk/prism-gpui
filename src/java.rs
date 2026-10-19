@@ -23,20 +23,14 @@ impl JavaInstall {
         let mut vendor = String::new();
         let mut arch = String::new();
         for line in stderr.lines() {
-            if line.contains("java.version") {
-                if let Some(v) = line.split('=').nth(1) {
-                    version = v.trim().to_string();
-                }
-            }
-            if line.contains("java.vendor") {
-                if let Some(v) = line.split('=').nth(1) {
-                    vendor = v.trim().to_string();
-                }
-            }
-            if line.contains("os.arch") {
-                if let Some(v) = line.split('=').nth(1) {
-                    arch = v.trim().to_string();
-                }
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            match key.trim() {
+                "java.version" => version = value.trim().to_string(),
+                "java.vendor" => vendor = value.trim().to_string(),
+                "os.arch" => arch = value.trim().to_string(),
+                _ => {}
             }
         }
         // fallback: parse "java version \"X\"" line
