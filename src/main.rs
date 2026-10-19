@@ -6,6 +6,7 @@ mod cli;
 mod desktop;
 mod console;
 mod fs;
+mod i18n;
 mod instance;
 mod java;
 mod launch;
@@ -18,6 +19,7 @@ mod theme;
 mod pack;
 mod settings;
 mod ui;
+mod updater;
 mod widgets;
 mod worlds;
 

@@ -81,6 +81,11 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("deleted world {world}");
             Ok(())
         }
+        Some("check-update") => {
+            let r = crate::updater::latest_release()?;
+            println!("latest Prism Launcher: {} ({})", r.tag_name, r.html_url);
+            Ok(())
+        }
         Some("news") => {
             cmd_news()
         }
@@ -145,6 +150,7 @@ fn print_help() {
     println!("  open <instance>   open the instance folder");
     println!("  worlds <instance>  list worlds");
     println!("  world-rm <instance> <world>  delete a world");
+    println!("  check-update      check the latest Prism Launcher release");
     println!("  news              show the Prism news feed");
     println!("  log <instance> [lines]  tail an instance log");
     println!("  launch <instance> launch an instance (foreground)");
