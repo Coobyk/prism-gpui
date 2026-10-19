@@ -169,9 +169,33 @@ impl ModBrowser {
                             return "pack download produced no .mrpack".to_string();
                         };
                         match crate::pack::mrpack::install(&pack, &inst_dir) {
-                            Ok(_) => {
+                            Ok(manifest) => {
                                 let cfg = "[General]\nInstanceType=OneSix\nConfigVersion=1.3\n";
                                 let _ = std::fs::write(inst_dir.join("instance.cfg"), cfg);
+                                let deps = &manifest.dependencies;
+                                if let Some(mc) = &deps.minecraft {
+                                    let _ = crate::meta::set_component(&inst_dir, "net.minecraft", mc);
+                                }
+                                if let Some(f) = &deps.fabric_loader {
+                                    let _ = crate::meta::set_component(
+                                        &inst_dir,
+                                        "net.fabricmc.fabric-loader",
+                                        f,
+                                    );
+                                }
+                                if let Some(f) = &deps.forge {
+                                    let _ = crate::meta::set_component(&inst_dir, "net.minecraftforge", f);
+                                }
+                                if let Some(f) = &deps.neo_forge {
+                                    let _ = crate::meta::set_component(&inst_dir, "net.neoforged", f);
+                                }
+                                if let Some(f) = &deps.quilt_loader {
+                                    let _ = crate::meta::set_component(
+                                        &inst_dir,
+                                        "org.quiltmc.quilt-loader",
+                                        f,
+                                    );
+                                }
                                 format!("Installed modpack into {}", inst_dir.display())
                             }
                             Err(e) => format!("Extract failed: {e}"),

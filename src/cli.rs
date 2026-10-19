@@ -421,6 +421,12 @@ fn cmd_install_pack(data_root: &Path, slug: &str, name: Option<&str>) -> Result<
         if let Some(f) = &m.dependencies.forge {
             let _ = meta::set_component(&inst_dir, "net.minecraftforge", f);
         }
+        if let Some(f) = &m.dependencies.neo_forge {
+            let _ = meta::set_component(&inst_dir, "net.neoforged", f);
+        }
+        if let Some(f) = &m.dependencies.quilt_loader {
+            let _ = meta::set_component(&inst_dir, "org.quiltmc.quilt-loader", f);
+        }
     }
     println!("installed pack {} → {}", slug, inst_dir.display());
     Ok(())
