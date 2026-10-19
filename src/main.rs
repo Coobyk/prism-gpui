@@ -3,12 +3,14 @@
 
 mod auth;
 mod cli;
+mod fs;
 mod instance;
 mod java;
 mod launch;
 mod meta;
 mod modplatform;
 mod net;
+mod pack;
 mod settings;
 
 use crate::instance::discover_instances;
