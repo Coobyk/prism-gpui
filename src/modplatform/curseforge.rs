@@ -48,7 +48,8 @@ pub struct CurseForge;
 impl CurseForge {
     fn get(&self, url: &str) -> Result<String, String> {
         let key = api_key()?;
-        ureq::get(url)
+        crate::net::agent()
+            .get(url)
             .set("x-api-key", &key)
             .set("Accept", "application/json")
             .call()

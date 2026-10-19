@@ -224,6 +224,51 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("set group of {name} to {}", group.unwrap_or("(none)"));
             Ok(())
         }
+        Some("settings") => {
+            let sub = args.get(1).map(|s| s.as_str()).unwrap_or("list");
+            let mut s = crate::settings::GlobalSettings::load(data_root);
+            match sub {
+                "list" => {
+                    for (k, v) in &s.raw {
+                        println!("{k}={v}");
+                    }
+                    Ok(())
+                }
+                "get" => {
+                    let key = args.get(2).ok_or("usage: settings get <key>")?;
+                    println!("{}", s.get(key).unwrap_or(""));
+                    Ok(())
+                }
+                "set" => {
+                    let key = args.get(2).ok_or("usage: settings set <key> <value>")?;
+                    let value = args.get(3).ok_or("usage: settings set <key> <value>")?;
+                    s.set(key, value);
+                    s.save().map_err(|e| e.to_string())?;
+                    println!("set {key}={value}");
+                    Ok(())
+                }
+                other => Err(format!("unknown settings subcommand: {other}")),
+            }
+        }
+        Some("install-url") => {
+            let name = args.get(1).ok_or("usage: install-url <instance> <url>")?;
+            let url = args.get(2).ok_or("usage: install-url <instance> <url>")?;
+            let inst = find_instance(data_root, name)?;
+            let dir = inst.dir.join("minecraft").join("mods");
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let filename = url
+                .rsplit('/')
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("download.jar")
+                .split('?')
+                .next()
+                .unwrap_or("download.jar");
+            let dest = dir.join(filename);
+            crate::net::download_verified(url, &dest, None)?;
+            println!("installed {} → {}", filename, dest.display());
+            Ok(())
+        }
         Some("open") => {
             let name = args.get(1).ok_or("usage: open <instance>")?;
             let inst = find_instance(data_root, name)?;
@@ -331,6 +376,8 @@ fn print_help() {
     println!("  accounts          list saved accounts");
     println!("  logout <uuid|name>  remove an account");
     println!("  set-component <instance> <uid> <version>  change a component version");
+    println!("  settings [list|get <k>|set <k> <v>]  read/write global settings");
+    println!("  install-url <instance> <url>  download a mod directly into mods/");
     println!("  groups            list instance groups");
     println!("  group-set <instance> <group|->  assign an instance to a group");
     println!("  open <instance>   open the instance folder");

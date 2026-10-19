@@ -4,8 +4,48 @@
 use sha1::{Digest, Sha1};
 use std::io::Read;
 use std::path::Path;
+use std::sync::OnceLock;
 
 const UA: &str = "prism-gpui/0.1 (github.com/Coobyk/prism-gpui)";
+
+static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+/// Proxy URL from the environment, honouring `PRISM_PROXY` first, then the
+/// standard `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` variables.
+fn proxy_url() -> Option<String> {
+    for key in [
+        "PRISM_PROXY",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ] {
+        if let Ok(v) = std::env::var(key) {
+            if !v.trim().is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+/// The shared HTTP agent (with optional proxy configuration).
+pub fn agent() -> &'static ureq::Agent {
+    AGENT.get_or_init(|| {
+        let mut builder = ureq::AgentBuilder::new().user_agent(UA);
+        if let Some(url) = proxy_url() {
+            match ureq::Proxy::new(&url) {
+                Ok(proxy) => {
+                    builder = builder.proxy(proxy);
+                }
+                Err(e) => eprintln!("ignoring invalid proxy {url:?}: {e}"),
+            }
+        }
+        builder.build()
+    })
+}
 
 pub fn sha1_file(path: &Path) -> Option<String> {
     let mut f = std::fs::File::open(path).ok()?;
@@ -37,8 +77,8 @@ pub fn download_verified(url: &str, dest: &Path, expected_sha1: Option<&str>) ->
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let tmp = dest.with_extension("part");
-    let resp = ureq::get(url)
-        .set("User-Agent", UA)
+    let resp = agent()
+        .get(url)
         .call()
         .map_err(|e| e.to_string())?;
     let mut reader = resp.into_reader();
@@ -59,8 +99,8 @@ pub fn download_verified(url: &str, dest: &Path, expected_sha1: Option<&str>) ->
 
 /// GET a URL as a string.
 pub fn get_string(url: &str) -> Result<String, String> {
-    ureq::get(url)
-        .set("User-Agent", UA)
+    agent()
+        .get(url)
         .call()
         .map_err(|e| e.to_string())?
         .into_string()

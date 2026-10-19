@@ -77,11 +77,7 @@ fn urlencoding(s: &str) -> String {
 }
 
 fn ureq_get(url: &str) -> Result<String, ()> {
-    let resp = ureq::get(url)
-        .set("User-Agent", "prism-gpui/0.1 (github.com/Coobyk/prism-gpui)")
-        .call()
-        .map_err(|_| ())?;
-    resp.into_string().map_err(|_| ())
+    crate::net::agent().get(url).call().map_err(|_| ())?.into_string().map_err(|_| ())
 }
 
 #[derive(Deserialize)]
@@ -170,12 +166,7 @@ impl Modrinth {
             url.push('?');
             url.push_str(&params.join("&"));
         }
-        let body = ureq::get(&url)
-            .set("User-Agent", "prism-gpui/0.1 (github.com/Coobyk/prism-gpui)")
-            .call()
-            .map_err(|e| e.to_string())?
-            .into_string()
-            .map_err(|e| e.to_string())?;
+        let body = crate::net::get_string(&url)?;
         serde_json::from_str(&body).map_err(|e| e.to_string())
     }
 
@@ -193,8 +184,8 @@ impl Modrinth {
             .ok_or("version has no files")?;
         std::fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
         let dest = dest_dir.join(&file.filename);
-        let resp = ureq::get(&file.url)
-            .set("User-Agent", "prism-gpui/0.1 (github.com/Coobyk/prism-gpui)")
+        let resp = crate::net::agent()
+            .get(&file.url)
             .call()
             .map_err(|e| e.to_string())?;
         let mut reader = resp.into_reader();
