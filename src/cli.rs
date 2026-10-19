@@ -53,6 +53,35 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("java: {}", bin.display());
             Ok(())
         }
+        Some("components") => {
+            let name = args.get(1).ok_or("usage: components <instance>")?;
+            let inst = find_instance(data_root, name)?;
+            if let Some(pack) = meta::read_component_pack(&inst.dir) {
+                for c in pack.components {
+                    println!("{:<32} {}", c.uid, c.version);
+                }
+            }
+            Ok(())
+        }
+        Some("versions") => {
+            let uid = args.get(1).ok_or("usage: versions <uid>")?;
+            let idx = meta::list_versions(data_root, uid)
+                .ok_or_else(|| format!("no metadata for {uid}"))?;
+            println!("{} ({})", idx.name, idx.uid);
+            for v in idx.versions.iter().take(40) {
+                println!("  {:<16} {}{}", v.version, v.release_type, if v.recommended { " *" } else { "" });
+            }
+            Ok(())
+        }
+        Some("set-component") => {
+            let name = args.get(1).ok_or("usage: set-component <instance> <uid> <version>")?;
+            let uid = args.get(2).ok_or("usage: set-component <instance> <uid> <version>")?;
+            let version = args.get(3).ok_or("usage: set-component <instance> <uid> <version>")?;
+            let inst = find_instance(data_root, name)?;
+            meta::set_component(&inst.dir, uid, version)?;
+            println!("set {uid} = {version} in {name}");
+            Ok(())
+        }
         Some("open") => {
             let name = args.get(1).ok_or("usage: open <instance>")?;
             let inst = find_instance(data_root, name)?;
@@ -147,6 +176,9 @@ fn print_help() {
     println!("  packinfo <file>   inspect a modpack");
     println!("  import <file> [name]  import a modpack");
     println!("  export <instance> <file> [format]  export (mrpack|curseforge|mmc)");
+    println!("  components <instance>  list components");
+    println!("  versions <uid>    list available versions for a component");
+    println!("  set-component <instance> <uid> <version>  change a component version");
     println!("  open <instance>   open the instance folder");
     println!("  worlds <instance>  list worlds");
     println!("  world-rm <instance> <world>  delete a world");

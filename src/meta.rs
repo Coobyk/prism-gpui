@@ -290,3 +290,80 @@ mod tests {
         );
     }
 }
+
+#[derive(Debug, Deserialize, Default)]
+pub struct MetaIndex {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub uid: String,
+    #[serde(default)]
+    pub versions: Vec<MetaVersion>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct MetaVersion {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub recommended: bool,
+    #[serde(rename = "type", default)]
+    pub release_type: String,
+}
+
+/// List available versions for a component from `<data_root>/meta/<uid>/index.json`.
+pub fn list_versions(data_root: &Path, uid: &str) -> Option<MetaIndex> {
+    let path = data_root.join("meta").join(uid).join("index.json");
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Set (or add) a component version in an instance's mmc-pack.json.
+pub fn set_component(inst_dir: &Path, uid: &str, version: &str) -> Result<(), String> {
+    let path = inst_dir.join("mmc-pack.json");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        r#"{"formatVersion":1,"components":[]}"#.to_string()
+    });
+    let mut value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let components = value
+        .get_mut("components")
+        .and_then(|c| c.as_array_mut())
+        .ok_or("mmc-pack.json has no components array")?;
+    let mut found = false;
+    for c in components.iter_mut() {
+        if c.get("uid").and_then(|u| u.as_str()) == Some(uid) {
+            c["version"] = serde_json::Value::String(version.to_string());
+            if let Some(name) = c.get("cachedName").and_then(|n| n.as_str()) {
+                let _ = name;
+            }
+            found = true;
+        }
+    }
+    if !found {
+        components.push(serde_json::json!({
+            "uid": uid,
+            "version": version,
+            "cachedName": uid
+        }));
+    }
+    let out = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+    std::fs::write(&path, out).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod component_tests {
+    use super::*;
+    #[test]
+    fn set_and_update_component() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path();
+        set_component(dir, "net.minecraft", "1.20.1").unwrap();
+        let pack = read_component_pack(dir).unwrap();
+        assert_eq!(pack.components[0].version, "1.20.1");
+        set_component(dir, "net.minecraft", "1.21.1").unwrap();
+        let pack = read_component_pack(dir).unwrap();
+        assert_eq!(pack.components[0].version, "1.21.1");
+        assert_eq!(pack.components.len(), 1);
+    }
+}
