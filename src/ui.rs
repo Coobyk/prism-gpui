@@ -52,6 +52,7 @@ impl Tab {
 pub struct InstanceView {
     pub name: SharedString,
     pub dir: PathBuf,
+    pub data_root: PathBuf,
     pub tab: Tab,
     pub entries: Vec<String>,
     pub status: SharedString,
@@ -59,10 +60,11 @@ pub struct InstanceView {
 }
 
 impl InstanceView {
-    pub fn new(name: impl Into<SharedString>, dir: PathBuf, theme: Theme) -> Self {
+    pub fn new(name: impl Into<SharedString>, dir: PathBuf, data_root: PathBuf, theme: Theme) -> Self {
         let mut v = Self {
             name: name.into(),
             dir,
+            data_root,
             tab: Tab::Mods,
             entries: Vec::new(),
             status: "Ready".into(),
@@ -127,6 +129,7 @@ impl Render for InstanceView {
             })
             .collect::<Vec<_>>();
 
+        let is_mods = self.tab == Tab::Mods;
         let entries = if self.entries.is_empty() {
             vec![div()
                 .p_3()
@@ -136,14 +139,47 @@ impl Render for InstanceView {
         } else {
             self.entries
                 .iter()
-                .map(|e| {
-                    div()
+                .cloned()
+                .enumerate()
+                .map(|(i, e)| {
+                    let mut row = div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
                         .px_3()
                         .py_1()
                         .border_b_1()
                         .border_color(rgb(theme.border))
-                        .child(e.clone())
-                        .into_any_element()
+                        .child(e.clone());
+                    if is_mods && !e.ends_with('/') {
+                        let file = e.clone();
+                        let disabled = file.ends_with(".disabled");
+                        row = row.child(
+                            div()
+                                .id(i)
+                                .px_2()
+                                .rounded_md()
+                                .bg(rgb(theme.surface))
+                                .border_1()
+                                .border_color(rgb(theme.border))
+                                .cursor_pointer()
+                                .child(if disabled { "Enable" } else { "Disable" })
+                                .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                    let dir = this.current_dir().join(&file);
+                                    let target = if file.ends_with(".disabled") {
+                                        dir.with_file_name(
+                                            file.trim_end_matches(".disabled").to_string(),
+                                        )
+                                    } else {
+                                        dir.with_file_name(format!("{file}.disabled"))
+                                    };
+                                    let _ = std::fs::rename(&dir, &target);
+                                    this.refresh();
+                                    cx.notify();
+                                })),
+                        );
+                    }
+                    row.into_any_element()
                 })
                 .collect()
         };
@@ -165,6 +201,36 @@ impl Render for InstanceView {
                     .border_b_1()
                     .border_color(rgb(theme.border))
                     .child(self.name.clone())
+                    .child(
+                        div()
+                            .id("launch-instance")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child("Launch")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                let java = crate::java::discover_java(&this.data_root)
+                                    .into_iter()
+                                    .next();
+                                if let Some(java) = java {
+                                    if let Some(profile) = crate::launch::build_profile(
+                                        &this.dir,
+                                        &this.data_root,
+                                        &java.path,
+                                    ) {
+                                        crate::console::open_console(
+                                            profile,
+                                            this.name.to_string(),
+                                            theme,
+                                            cx,
+                                        );
+                                    }
+                                }
+                            })),
+                    )
                     .child(
                         div()
                             .id("browse-mods")
@@ -226,9 +292,10 @@ impl Render for InstanceView {
 }
 
 /// Open a new window showing an instance's contents.
-pub fn open_instance(name: &str, dir: &Path, theme: Theme, cx: &mut App) -> Option<gpui::WindowHandle<InstanceView>> {
+pub fn open_instance(name: &str, dir: &Path, data_root: &Path, theme: Theme, cx: &mut App) -> Option<gpui::WindowHandle<InstanceView>> {
     let name = name.to_string();
     let dir = dir.to_path_buf();
+    let data_root = data_root.to_path_buf();
     let bounds = Bounds::centered(None, size(px(800.), px(600.)), cx);
     let handle = cx
         .open_window(
@@ -240,7 +307,7 @@ pub fn open_instance(name: &str, dir: &Path, theme: Theme, cx: &mut App) -> Opti
                 }),
                 ..Default::default()
             },
-            |_, cx| cx.new(|_| InstanceView::new(name.clone(), dir.clone(), theme)),
+            |_, cx| cx.new(|_| InstanceView::new(name.clone(), dir.clone(), data_root.clone(), theme)),
         )
         .ok()?;
     Some(handle)

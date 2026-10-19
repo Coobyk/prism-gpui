@@ -76,6 +76,7 @@ impl MainWindow {
 impl Render for MainWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        let root_for_open = self.data_root.clone();
         let rows: Vec<_> = self
             .instances
             .iter()
@@ -85,6 +86,7 @@ impl Render for MainWindow {
                 let open_name = row.name.clone();
                 let open_dir = row.dir.clone();
                 let this_theme = theme;
+                let open_root = root_for_open.clone();
                 div()
                     .flex()
                     .items_center()
@@ -101,7 +103,7 @@ impl Render for MainWindow {
                             .gap_1()
                             .cursor_pointer()
                             .on_click(cx.listener(move |_this, _, _, cx| {
-                                ui::open_instance(&open_name, &open_dir, this_theme, cx);
+                                ui::open_instance(&open_name, &open_dir, &open_root, this_theme, cx);
                             }))
                             .child(div().text_base().child(row.name.clone()))
                             .child(
