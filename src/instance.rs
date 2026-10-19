@@ -68,9 +68,14 @@ impl Instance {
     }
 }
 
-/// Discover instances under `<data_root>/instances`.
+/// The directory that holds instances, honouring the `InstanceDir` setting.
+pub fn instances_dir(data_root: &Path) -> PathBuf {
+    crate::settings::GlobalSettings::load(data_root).instance_dir()
+}
+
+/// Discover instances under the configured instances directory.
 pub fn discover_instances(data_root: &Path) -> Vec<Instance> {
-    let instances_dir = data_root.join("instances");
+    let instances_dir = instances_dir(data_root);
     let mut out = Vec::new();
     let entries = match fs::read_dir(&instances_dir) {
         Ok(e) => e,
@@ -137,13 +142,16 @@ mod tests {
 // ---- Instance management (create / remove / rename / duplicate) ----
 
 pub fn create_instance(data_root: &Path, name: &str, mc_version: &str) -> Result<PathBuf, String> {
-    let dir = data_root.join("instances").join(name);
+    let dir = instances_dir(data_root).join(name);
     if dir.exists() {
         return Err(format!("instance already exists: {name}"));
     }
     std::fs::create_dir_all(dir.join("minecraft")).map_err(|e| e.to_string())?;
+    let settings = crate::settings::GlobalSettings::load(data_root);
     let cfg = format!(
-        "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nname={name}\nMinMemAlloc=512\nMaxMemAlloc=4096\n"
+        "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nname={name}\nMinMemAlloc={}\nMaxMemAlloc={}\n",
+        settings.min_mem(),
+        settings.max_mem()
     );
     std::fs::write(dir.join("instance.cfg"), cfg).map_err(|e| e.to_string())?;
     let pack = serde_json::json!({
@@ -167,7 +175,7 @@ pub fn create_instance(data_root: &Path, name: &str, mc_version: &str) -> Result
 }
 
 pub fn remove_instance(data_root: &Path, name: &str) -> Result<(), String> {
-    let dir = data_root.join("instances").join(name);
+    let dir = instances_dir(data_root).join(name);
     if !dir.is_dir() {
         return Err(format!("instance not found: {name}"));
     }
@@ -175,8 +183,9 @@ pub fn remove_instance(data_root: &Path, name: &str) -> Result<(), String> {
 }
 
 pub fn rename_instance(data_root: &Path, from: &str, to: &str) -> Result<PathBuf, String> {
-    let src = data_root.join("instances").join(from);
-    let dst = data_root.join("instances").join(to);
+    let root = instances_dir(data_root);
+    let src = root.join(from);
+    let dst = root.join(to);
     if !src.is_dir() {
         return Err(format!("instance not found: {from}"));
     }
@@ -188,8 +197,9 @@ pub fn rename_instance(data_root: &Path, from: &str, to: &str) -> Result<PathBuf
 }
 
 pub fn duplicate_instance(data_root: &Path, from: &str, to: &str) -> Result<PathBuf, String> {
-    let src = data_root.join("instances").join(from);
-    let dst = data_root.join("instances").join(to);
+    let root = instances_dir(data_root);
+    let src = root.join(from);
+    let dst = root.join(to);
     if !src.is_dir() {
         return Err(format!("instance not found: {from}"));
     }

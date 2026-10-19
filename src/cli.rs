@@ -5,6 +5,7 @@ use crate::{instance, java, launch, meta};
 use std::path::Path;
 
 pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
+    crate::net::set_proxy(crate::settings::GlobalSettings::load(data_root).proxy_url());
     match args.first().map(|s| s.as_str()) {
         Some("list") => cmd_list(data_root),
         Some("java") => cmd_java(data_root),
@@ -229,8 +230,28 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let mut s = crate::settings::GlobalSettings::load(data_root);
             match sub {
                 "list" => {
-                    for (k, v) in &s.raw {
-                        println!("{k}={v}");
+                    for section in &s.ini.order {
+                        println!("[{section}]");
+                        if let Some(entries) = s.ini.sections.get(section) {
+                            for (k, v) in entries {
+                                println!("{k}={v}");
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                "pages" => {
+                    for p in crate::settings::pages() {
+                        println!("{p}");
+                    }
+                    Ok(())
+                }
+                "defs" => {
+                    for d in crate::settings::SETTINGS {
+                        println!(
+                            "{:<24} {:<16} default={:<8} {}",
+                            d.key, d.page, d.default, d.label
+                        );
                     }
                     Ok(())
                 }
@@ -550,7 +571,7 @@ fn cmd_install_pack(data_root: &Path, slug: &str, name: Option<&str>) -> Result<
     let provider = Modrinth;
     let versions = provider.versions(slug, None, None)?;
     let version = versions.first().ok_or("no versions for pack")?;
-    let instances_root = data_root.join("instances");
+    let instances_root = instance::instances_dir(data_root);
     let dir_name = name.unwrap_or(slug).replace(['/', '\\'], "_");
     let inst_dir = instances_root.join(&dir_name);
     std::fs::create_dir_all(&inst_dir).map_err(|e| e.to_string())?;
@@ -652,7 +673,7 @@ fn cmd_packinfo(path: &Path) -> Result<(), String> {
 }
 
 fn cmd_import(data_root: &Path, path: &Path, name: Option<&str>) -> Result<(), String> {
-    let instances_root = data_root.join("instances");
+    let instances_root = instance::instances_dir(data_root);
     match crate::pack::detect_format(path) {
         "mrpack" => {
             let m = crate::pack::mrpack::manifest_from_pack(path)?;
@@ -774,28 +795,33 @@ fn cmd_launch(data_root: &Path, name: &str) -> Result<(), String> {
         .into_iter()
         .find(|i| i.name == name)
         .ok_or_else(|| format!("instance not found: {name}"))?;
-    let java = java::discover_java(data_root)
-        .into_iter()
-        .next()
-        .ok_or("no Java installation found")?;
+    let java_path = java::ensure_for_instance(data_root, &inst.dir)?;
     let account = crate::accounts::AccountStore::load(data_root)
         .active_account()
         .cloned();
     let profile =
-        launch::build_profile_with_account(&inst.dir, data_root, &java.path, account.as_ref())
+        launch::build_profile_with_account(&inst.dir, data_root, &java_path, account.as_ref())
             .ok_or("could not build launch profile")?;
     println!(
         "launching {} with {} as {} ({} jars, main {})",
         inst.name,
-        java.path.display(),
+        java_path.display(),
         account.as_ref().map(|a| a.username.as_str()).unwrap_or("offline"),
         profile.classpath.len(),
         profile.main_class
     );
+    if !profile.pre_launch.trim().is_empty() {
+        println!("running pre-launch: {}", profile.pre_launch);
+        launch::run_hook(&profile.pre_launch, &profile.game_dir)?;
+    }
     let status = profile
         .jvm_command()
         .status()
         .map_err(|e| format!("spawn failed: {e}"))?;
     println!("exit: {status}");
+    if !profile.post_exit.trim().is_empty() {
+        println!("running post-exit: {}", profile.post_exit);
+        launch::run_hook(&profile.post_exit, &profile.game_dir)?;
+    }
     Ok(())
 }

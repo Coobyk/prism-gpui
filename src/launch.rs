@@ -16,11 +16,29 @@ pub struct LaunchProfile {
     pub classpath: Vec<PathBuf>,
     pub jvm_args: Vec<String>,
     pub game_args: Vec<String>,
+    /// Optional wrapper command prepended to the JVM invocation (e.g.
+    /// `gamemoderun`, `mangohud`, `prime-run`).
+    pub wrapper: Vec<String>,
+    /// Shell command run before the JVM starts.
+    pub pre_launch: String,
+    /// Shell command run after the game exits.
+    pub post_exit: String,
+    /// Maximum console lines to retain in memory.
+    pub console_max_lines: usize,
 }
 
 impl LaunchProfile {
     pub fn jvm_command(&self) -> Command {
-        let mut cmd = Command::new(&self.java_path);
+        let mut cmd = if self.wrapper.is_empty() {
+            Command::new(&self.java_path)
+        } else {
+            let mut c = Command::new(&self.wrapper[0]);
+            for a in &self.wrapper[1..] {
+                c.arg(a);
+            }
+            c.arg(&self.java_path);
+            c
+        };
         cmd.arg(format!("-Xms{}M", self.min_mem_mb));
         cmd.arg(format!("-Xmx{}M", self.max_mem_mb));
         for a in &self.jvm_args {
@@ -39,6 +57,62 @@ impl LaunchProfile {
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd
     }
+}
+
+/// Split a shell-ish command string into argv, honouring single/double quotes.
+pub fn split_command(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    let mut started = false;
+    for ch in s.chars() {
+        match quote {
+            Some(q) => {
+                if ch == q {
+                    quote = None;
+                } else {
+                    cur.push(ch);
+                }
+            }
+            None => match ch {
+                '\'' | '"' => {
+                    quote = Some(ch);
+                    started = true;
+                }
+                c if c.is_whitespace() => {
+                    if started || !cur.is_empty() {
+                        out.push(std::mem::take(&mut cur));
+                        started = false;
+                    }
+                }
+                c => {
+                    cur.push(c);
+                    started = true;
+                }
+            },
+        }
+    }
+    if started || !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Run a pre-launch / pre-command hook in the instance's game directory.
+pub fn run_hook(command: &str, game_dir: &Path) -> Result<(), String> {
+    let argv = split_command(command);
+    if argv.is_empty() {
+        return Ok(());
+    }
+    let status = Command::new(&argv[0])
+        .args(&argv[1..])
+        .current_dir(game_dir)
+        .status()
+        .map_err(|e| format!("hook {} failed: {e}", argv[0]))?;
+    if !status.success() {
+        return Err(format!("hook {} exited with {status}", argv[0]));
+    }
+    Ok(())
 }
 
 /// Build a launch profile for an instance without an account (offline/dev).
@@ -139,29 +213,60 @@ pub fn build_profile_with_account(
     game_args = game_args.into_iter().map(|a| subst(&a)).collect();
     jvm_args = jvm_args.into_iter().map(|a| subst(&a)).collect();
 
-    // Memory from instance.cfg if present.
+    // Memory + JVM args: instance.cfg overrides global settings, which
+    // override built-in defaults.
     let cfg_path = inst_dir.join("instance.cfg");
     let cfg = std::fs::read_to_string(&cfg_path).unwrap_or_default();
-    let mem = |key: &str, default: u32| -> u32 {
+    let cfg_get = |key: &str| -> Option<String> {
         cfg.lines()
             .find(|l| l.starts_with(key))
             .and_then(|l| l.split('=').nth(1))
-            .and_then(|v| v.trim().parse().ok())
-            .unwrap_or(default)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
     };
+
+    let settings = crate::settings::GlobalSettings::load(data_root);
+    let min_mem = cfg_get("MinMemAlloc")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or_else(|| settings.min_mem());
+    let max_mem = cfg_get("MaxMemAlloc")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or_else(|| settings.max_mem());
+
+    // Global JVM args, then per-instance overrides.
+    let mut extra_jvm = settings.jvm_args();
+    if let Some(inst_args) = cfg_get("JvmArgs") {
+        extra_jvm.extend(split_command(&inst_args));
+    }
+    jvm_args.extend(extra_jvm);
+
+    let wrapper = if let Some(w) = cfg_get("WrapperCommand") {
+        split_command(&w)
+    } else {
+        split_command(settings.wrapper_command())
+    };
+
+    let pre_launch = cfg_get("PreLaunchCommand")
+        .unwrap_or_else(|| settings.pre_launch_command().to_string());
+    let post_exit =
+        cfg_get("PostExitCommand").unwrap_or_else(|| settings.post_exit_command().to_string());
 
     classpath.push(inst_dir.join("minecraft").join("client.jar"));
 
     Some(LaunchProfile {
         java_path: java_path.to_path_buf(),
-        min_mem_mb: mem("MinMemAlloc", 512),
-        max_mem_mb: mem("MaxMemAlloc", 4096),
+        min_mem_mb: min_mem,
+        max_mem_mb: max_mem,
         game_dir,
         assets_dir,
         main_class: version.main_class,
         classpath,
         jvm_args,
         game_args,
+        wrapper,
+        pre_launch,
+        post_exit,
+        console_max_lines: settings.console_max_lines(),
     })
 }
 
@@ -205,6 +310,31 @@ mod tests {
         let dbg = format!("{:?}", cmd);
         assert!(dbg.contains("java"));
     }
+    #[test]
+    fn split_command_handles_quotes() {
+        assert_eq!(split_command("gamemoderun mangohud"), vec!["gamemoderun", "mangohud"]);
+        assert_eq!(
+            split_command("env FOO='a b' bar"),
+            vec!["env", "FOO=a b", "bar"]
+        );
+        assert_eq!(split_command("  "), Vec::<String>::new());
+        assert_eq!(split_command("\"quoted path\"/bin"), vec!["quoted path/bin"]);
+    }
+
+    #[test]
+    fn wrapper_is_prepended() {
+        let p = LaunchProfile {
+            java_path: "/usr/bin/java".into(),
+            main_class: "Main".into(),
+            wrapper: vec!["gamemoderun".into()],
+            ..Default::default()
+        };
+        let dbg = format!("{:?}", p.jvm_command());
+        let gi = dbg.find("gamemoderun").unwrap();
+        let ji = dbg.find("java").unwrap();
+        assert!(gi < ji, "wrapper should come first: {dbg}");
+    }
+
     #[test]
     fn collect_args() {
         let vals: Vec<serde_json::Value> = vec![

@@ -10,9 +10,22 @@ const UA: &str = "prism-gpui/0.1 (github.com/Coobyk/prism-gpui)";
 
 static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
 
-/// Proxy URL from the environment, honouring `PRISM_PROXY` first, then the
-/// standard `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` variables.
+/// Proxy explicitly configured by the launcher's settings (wins over env).
+/// Must be set once, before the first request, via [`set_proxy`].
+static PROXY_OVERRIDE: OnceLock<Option<String>> = OnceLock::new();
+
+/// Install the proxy from global settings. Safe to call repeatedly; only the
+/// first call takes effect (the agent is built lazily on first request).
+pub fn set_proxy(proxy: Option<String>) {
+    let _ = PROXY_OVERRIDE.set(proxy);
+}
+
+/// Proxy URL: an explicit setting wins, then `PRISM_PROXY`, then the standard
+/// `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` environment variables.
 fn proxy_url() -> Option<String> {
+    if let Some(Some(p)) = PROXY_OVERRIDE.get() {
+        return Some(p.clone());
+    }
     for key in [
         "PRISM_PROXY",
         "HTTPS_PROXY",

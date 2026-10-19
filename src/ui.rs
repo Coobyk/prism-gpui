@@ -2,8 +2,8 @@
 
 use crate::theme::Theme;
 use gpui::{
-    App, Bounds, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    AnyElement, App, Bounds, Context, Entity, IntoElement, ParentElement, Render, SharedString,
+    Styled, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
 };
 use std::path::{Path, PathBuf};
 
@@ -232,25 +232,30 @@ impl Render for InstanceView {
                             .cursor_pointer()
                             .child("Launch")
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                let java = crate::java::discover_java(&this.data_root)
-                                    .into_iter()
-                                    .next();
-                                if let Some(java) = java {
-                                    let account = crate::accounts::AccountStore::load(&this.data_root)
-                                        .active_account()
-                                        .cloned();
-                                    if let Some(profile) = crate::launch::build_profile_with_account(
-                                        &this.dir,
-                                        &this.data_root,
-                                        &java.path,
-                                        account.as_ref(),
-                                    ) {
-                                        crate::console::open_console(
-                                            profile,
-                                            this.name.to_string(),
-                                            theme,
-                                            cx,
-                                        );
+                                match crate::java::ensure_for_instance(&this.data_root, &this.dir) {
+                                    Ok(java) => {
+                                        let account =
+                                            crate::accounts::AccountStore::load(&this.data_root)
+                                                .active_account()
+                                                .cloned();
+                                        if let Some(profile) =
+                                            crate::launch::build_profile_with_account(
+                                                &this.dir,
+                                                &this.data_root,
+                                                &java,
+                                                account.as_ref(),
+                                            )
+                                        {
+                                            crate::console::open_console(
+                                                profile,
+                                                this.name.to_string(),
+                                                theme,
+                                                cx,
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("cannot launch: {e}");
                                     }
                                 }
                             })),
@@ -371,7 +376,6 @@ pub fn open_instance(name: &str, dir: &Path, data_root: &Path, theme: Theme, cx:
 // ---- New instance window ----
 
 use crate::instance::create_instance;
-use crate::theme::ThemeMode;
 use crate::widgets::text_input::TextInput;
 
 pub struct NewInstanceView {
@@ -464,36 +468,66 @@ pub fn open_new_instance(
 
 // ---- Settings window ----
 
+use crate::settings::{GlobalSettings, ValueKind, SETTINGS, pages};
+
 pub struct SettingsView {
-    settings: crate::settings::GlobalSettings,
+    settings: GlobalSettings,
+    page: usize,
+    /// Text inputs for every non-boolean setting, keyed by registry index.
+    inputs: Vec<(&'static crate::settings::SettingDef, Entity<TextInput>)>,
     status: SharedString,
     theme: Theme,
 }
 
 impl SettingsView {
-    pub fn new(settings: crate::settings::GlobalSettings, theme: Theme) -> Self {
+    pub fn new(settings: GlobalSettings, theme: Theme, cx: &mut Context<Self>) -> Self {
+        let inputs = SETTINGS
+            .iter()
+            .filter(|d| d.kind != ValueKind::Bool)
+            .map(|d| {
+                let initial = settings.get(d.key).unwrap_or(d.default).to_string();
+                let label = d.label;
+                let input = cx.new(|cx| {
+                    let mut t = TextInput::new(label, cx);
+                    t.set_text(initial, cx);
+                    t
+                });
+                (d, input)
+            })
+            .collect();
         Self {
             settings,
-            status: "Ready".into(),
+            page: 0,
+            inputs,
+            status: "Changes are saved when you press Save".into(),
             theme,
         }
     }
 
-    fn toggle_theme(&mut self, cx: &mut Context<Self>) {
-        let next = match self.theme.mode {
-            ThemeMode::Dark => ThemeMode::Light,
-            ThemeMode::Light => ThemeMode::Dark,
-        };
-        self.theme = Theme::for_mode(next);
-        let name = match next {
-            ThemeMode::Dark => "dark",
-            ThemeMode::Light => "light",
-        };
-        self.settings.set("ApplicationTheme", name);
+    fn save(&mut self, cx: &mut Context<Self>) {
+        for (def, input) in &self.inputs {
+            let value = input.read(cx).text().trim().to_string();
+            self.settings.set(def.key, &value);
+        }
+        match std::env::var("PRISM_MS_CLIENT_ID") {
+            Ok(id) if !id.is_empty() => {
+                self.settings.set("MSAClientIDOverride", &id);
+            }
+            _ => {}
+        }
         match self.settings.save() {
-            Ok(()) => self.status = format!("Saved theme: {name}").into(),
+            Ok(()) => {
+                self.theme = Theme::for_name(self.settings.theme());
+                self.status = "Saved".into();
+            }
             Err(e) => self.status = format!("Save failed: {e}").into(),
         }
+        cx.notify();
+    }
+
+    fn toggle_bool(&mut self, key: &'static str, cx: &mut Context<Self>) {
+        let current = self.settings.get_bool(key);
+        self.settings.set_bool(key, !current);
         cx.notify();
     }
 }
@@ -501,23 +535,82 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let entries: Vec<_> = self
-            .settings
-            .raw
+        let all_pages = pages();
+        let page_name = all_pages.get(self.page).copied().unwrap_or("General");
+
+        let tabs: Vec<_> = all_pages
             .iter()
-            .map(|(k, v)| {
+            .enumerate()
+            .map(|(i, p)| {
+                let selected = i == self.page;
                 div()
-                    .flex()
-                    .justify_between()
+                    .id(("page", i))
                     .px_3()
                     .py_1()
-                    .border_b_1()
-                    .border_color(rgb(theme.border))
-                    .child(k.clone())
-                    .child(div().text_color(rgb(theme.subtext)).child(v.clone()))
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.surface) })
+                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
+                    .child(*p)
+                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                        this.page = i;
+                        cx.notify();
+                    }))
                     .into_any_element()
             })
             .collect();
+
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for (idx, def) in SETTINGS.iter().enumerate().filter(|(_, d)| d.page == page_name) {
+            let label = div()
+                .w(px(240.))
+                .flex_shrink_0()
+                .text_sm()
+                .child(def.label.to_string());
+            let control = if def.kind == ValueKind::Bool {
+                let on = self.settings.get_bool(def.key);
+                let key = def.key;
+                div()
+                    .id(("bool", idx))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if on { rgb(theme.accent) } else { rgb(theme.surface) })
+                    .text_color(if on { rgb(theme.on_accent) } else { rgb(theme.text) })
+                    .border_1()
+                    .border_color(rgb(theme.border))
+                    .child(if on { "On" } else { "Off" })
+                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                        this.toggle_bool(key, cx);
+                    }))
+                    .into_any_element()
+            } else if let Some((_, input)) = self.inputs.iter().find(|(d, _)| d.key == def.key) {
+                div().w(px(420.)).child(input.clone()).into_any_element()
+            } else {
+                div().into_any_element()
+            };
+            let mut row = div()
+                .id(("row", idx))
+                .flex()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(rgb(theme.border))
+                .child(label)
+                .child(control);
+            if let Some(v) = self.settings.get(def.key) {
+                row = row.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(theme.subtext))
+                        .child(format!("({v})")),
+                );
+            }
+            rows.push(row.into_any_element());
+        }
 
         div()
             .flex()
@@ -534,31 +627,48 @@ impl Render for SettingsView {
                     .bg(rgb(theme.surface))
                     .border_b_1()
                     .border_color(rgb(theme.border))
-                    .child("Global Settings")
+                    .child(div().text_lg().child("Global Settings"))
                     .child(
                         div()
-                            .id("toggle-theme")
+                            .id("save-settings")
                             .px_3()
                             .py_1()
                             .rounded_md()
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child("Toggle Theme")
-                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.toggle_theme(cx))),
+                            .child("Save")
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
                     )
-                    .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
             )
-            .child(div().flex_1().flex().flex_col().overflow_hidden().children(entries))
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .p_3()
+                    .bg(rgb(theme.background))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .children(tabs),
+            )
+            .child(div().flex_1().flex().flex_col().overflow_hidden().children(rows))
     }
 }
 
 pub fn open_settings(
-    settings: crate::settings::GlobalSettings,
+    settings: GlobalSettings,
     theme: Theme,
     cx: &mut App,
 ) -> Option<gpui::WindowHandle<SettingsView>> {
-    let bounds = Bounds::centered(None, size(px(640.), px(560.)), cx);
+    let bounds = Bounds::centered(None, size(px(860.), px(640.)), cx);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -568,7 +678,7 @@ pub fn open_settings(
             }),
             ..Default::default()
         },
-        move |_, cx| cx.new(|_| SettingsView::new(settings, theme)),
+        move |_, cx| cx.new(|cx| SettingsView::new(settings, theme, cx)),
     )
     .ok()
 }

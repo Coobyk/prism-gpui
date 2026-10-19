@@ -41,6 +41,16 @@ pub struct VersionJson {
     pub version_type: String,
     #[serde(default)]
     pub id: String,
+    #[serde(default, rename = "javaVersion")]
+    pub java_version: Option<JavaVersion>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct JavaVersion {
+    #[serde(default, rename = "majorVersion")]
+    pub major_version: u32,
+    #[serde(default, rename = "component")]
+    pub component: String,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -114,6 +124,31 @@ impl Library {
 pub fn read_version_json(path: &Path) -> Option<VersionJson> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+/// Java major version required by an instance's Minecraft version. Prefers the
+/// `javaVersion.majorVersion` field of the Mojang version JSON and falls back
+/// to a version-string heuristic when that JSON has not been downloaded yet.
+pub fn required_java_major(inst_dir: &Path, data_root: &Path) -> u32 {
+    if let Some(pack) = read_component_pack(inst_dir) {
+        for comp in &pack.components {
+            if comp.uid == "net.minecraft" {
+                let candidate = data_root
+                    .join("meta")
+                    .join("net.minecraft")
+                    .join(format!("{}.json", comp.version));
+                if let Some(v) = read_version_json(&candidate) {
+                    if let Some(j) = v.java_version {
+                        if j.major_version > 0 {
+                            return j.major_version;
+                        }
+                    }
+                }
+                return crate::java::heuristic_major(&comp.version);
+            }
+        }
+    }
+    8
 }
 
 /// Resolve the classpath jars for a version from `<libraries>/<maven path>`.

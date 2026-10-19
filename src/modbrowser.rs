@@ -138,7 +138,7 @@ impl ModBrowser {
     fn install(&mut self, slug: String, cx: &mut Context<Self>) {
         let kind = self.kind;
         let dir = self.install_dir();
-        let instances_root = self.data_root.join("instances");
+        let instances_root = crate::instance::instances_dir(&self.data_root);
         self.status = format!("Installing {slug}…").into();
         cx.notify();
         cx.spawn(async move |this, cx| {

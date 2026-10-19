@@ -30,6 +30,22 @@ impl ConsoleView {
         let status: SharedString = format!("Launching {name}…").into();
 
         std::thread::spawn(move || {
+            let cap = profile.console_max_lines.max(100);
+            let push = |lines: &Arc<Mutex<Vec<String>>>, s: String| {
+                let mut v = lines.lock().unwrap();
+                v.push(s);
+                if v.len() > cap {
+                    let excess = v.len() - cap;
+                    v.drain(0..excess);
+                }
+            };
+            if !profile.pre_launch.trim().is_empty() {
+                push(&lines_bg, format!("$ {}", profile.pre_launch));
+                match crate::launch::run_hook(&profile.pre_launch, &profile.game_dir) {
+                    Ok(()) => {}
+                    Err(e) => push(&lines_bg, format!("pre-launch hook: {e}")),
+                }
+            }
             let mut cmd = profile.jvm_command();
             match cmd.spawn() {
                 Ok(mut child) => {
@@ -39,7 +55,12 @@ impl ConsoleView {
                     let t1 = std::thread::spawn(move || {
                         if let Some(out) = out {
                             for line in BufReader::new(out).lines().map_while(Result::ok) {
-                                l1.lock().unwrap().push(line);
+                                let mut v = l1.lock().unwrap();
+                                v.push(line);
+                                if v.len() > 100_000 {
+                                    let excess = v.len() - 100_000;
+                                    v.drain(0..excess);
+                                }
                             }
                         }
                     });
@@ -47,17 +68,28 @@ impl ConsoleView {
                     let t2 = std::thread::spawn(move || {
                         if let Some(err) = err {
                             for line in BufReader::new(err).lines().map_while(Result::ok) {
-                                l2.lock().unwrap().push(line);
+                                let mut v = l2.lock().unwrap();
+                                v.push(line);
+                                if v.len() > 100_000 {
+                                    let excess = v.len() - 100_000;
+                                    v.drain(0..excess);
+                                }
                             }
                         }
                     });
                     let _ = t1.join();
                     let _ = t2.join();
                     let code = child.wait().map(|s| s.to_string()).unwrap_or_default();
-                    lines_bg.lock().unwrap().push(format!("--- process exited: {code} ---"));
+                    push(&lines_bg, format!("--- process exited: {code} ---"));
                 }
                 Err(e) => {
-                    lines_bg.lock().unwrap().push(format!("Failed to start: {e}"));
+                    push(&lines_bg, format!("Failed to start: {e}"));
+                }
+            }
+            if !profile.post_exit.trim().is_empty() {
+                push(&lines_bg, format!("$ {}", profile.post_exit));
+                if let Err(e) = crate::launch::run_hook(&profile.post_exit, &profile.game_dir) {
+                    push(&lines_bg, format!("post-exit hook: {e}"));
                 }
             }
             done_bg.store(true, Ordering::SeqCst);

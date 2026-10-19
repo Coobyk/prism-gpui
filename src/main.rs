@@ -65,10 +65,13 @@ struct MainWindow {
 
 impl MainWindow {
     fn launch(&mut self, row: InstanceRow, cx: &mut Context<Self>) {
-        let Some(java) = self.java_path.clone() else {
-            self.status = "No Java installation found".into();
-            cx.notify();
-            return;
+        let java = match java::ensure_for_instance(&self.data_root, &row.dir) {
+            Ok(path) => path,
+            Err(e) => {
+                self.status = e.into();
+                cx.notify();
+                return;
+            }
         };
         let account = crate::accounts::AccountStore::load(&self.data_root)
             .active_account()
@@ -424,11 +427,12 @@ fn main() {
         }
     }
     let settings = GlobalSettings::load(&root);
+    crate::net::set_proxy(settings.proxy_url());
     let rows = instance_rows(&root);
     let java = java::discover_java(&root);
     let java_path = java.first().map(|j| j.path.clone());
     let java_count = java.len();
-    let theme = Theme::for_name(&settings.theme);
+    let theme = Theme::for_name(settings.theme());
 
     let shared_root = Arc::new(root);
     Application::new().run(move |cx: &mut App| {
