@@ -5,6 +5,7 @@ mod auth;
 mod instance;
 mod java;
 mod launch;
+mod meta;
 mod modplatform;
 mod settings;
 
