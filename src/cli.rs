@@ -17,6 +17,33 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let name = args.get(1).ok_or("usage: launch <instance>")?;
             cmd_launch(data_root, name)
         }
+        Some("create") => {
+            let name = args.get(1).ok_or("usage: create <name> <mc-version>")?;
+            let ver = args.get(2).ok_or("usage: create <name> <mc-version>")?;
+            let dir = instance::create_instance(data_root, name, ver)?;
+            println!("created {}", dir.display());
+            Ok(())
+        }
+        Some("rm") | Some("remove") => {
+            let name = args.get(1).ok_or("usage: rm <name>")?;
+            instance::remove_instance(data_root, name)?;
+            println!("removed {name}");
+            Ok(())
+        }
+        Some("rename") => {
+            let from = args.get(1).ok_or("usage: rename <from> <to>")?;
+            let to = args.get(2).ok_or("usage: rename <from> <to>")?;
+            let dir = instance::rename_instance(data_root, from, to)?;
+            println!("renamed to {}", dir.display());
+            Ok(())
+        }
+        Some("duplicate") | Some("dup") => {
+            let from = args.get(1).ok_or("usage: duplicate <from> <to>")?;
+            let to = args.get(2).ok_or("usage: duplicate <from> <to>")?;
+            let dir = instance::duplicate_instance(data_root, from, to)?;
+            println!("duplicated to {}", dir.display());
+            Ok(())
+        }
         Some("update") => {
             let name = args.get(1).ok_or("usage: update <instance>")?;
             cmd_update(data_root, name)
@@ -58,6 +85,10 @@ fn print_help() {
     println!("prism-gpui <command>");
     println!("  list              list instances");
     println!("  java              list Java installations");
+    println!("  create <name> <mc-version>  create an instance");
+    println!("  rm <name>         delete an instance");
+    println!("  rename <from> <to>  rename an instance");
+    println!("  duplicate <from> <to>  duplicate an instance");
     println!("  update <instance>  download missing libraries and assets");
     println!("  assets <instance> [limit]  download missing assets");
     println!("  search <query>    search Modrinth");

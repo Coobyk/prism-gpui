@@ -115,3 +115,86 @@ mod tests {
         assert_eq!(found[0].max_mem, 1024);
     }
 }
+
+// ---- Instance management (create / remove / rename / duplicate) ----
+
+pub fn create_instance(data_root: &Path, name: &str, mc_version: &str) -> Result<PathBuf, String> {
+    let dir = data_root.join("instances").join(name);
+    if dir.exists() {
+        return Err(format!("instance already exists: {name}"));
+    }
+    std::fs::create_dir_all(dir.join("minecraft")).map_err(|e| e.to_string())?;
+    let cfg = format!(
+        "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nname={name}\nMinMemAlloc=512\nMaxMemAlloc=4096\n"
+    );
+    std::fs::write(dir.join("instance.cfg"), cfg).map_err(|e| e.to_string())?;
+    let pack = serde_json::json!({
+        "formatVersion": 1,
+        "components": [
+            {
+                "cachedName": "Minecraft",
+                "cachedVersion": mc_version,
+                "important": true,
+                "uid": "net.minecraft",
+                "version": mc_version
+            }
+        ]
+    });
+    std::fs::write(
+        dir.join("mmc-pack.json"),
+        serde_json::to_string_pretty(&pack).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+pub fn remove_instance(data_root: &Path, name: &str) -> Result<(), String> {
+    let dir = data_root.join("instances").join(name);
+    if !dir.is_dir() {
+        return Err(format!("instance not found: {name}"));
+    }
+    std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())
+}
+
+pub fn rename_instance(data_root: &Path, from: &str, to: &str) -> Result<PathBuf, String> {
+    let src = data_root.join("instances").join(from);
+    let dst = data_root.join("instances").join(to);
+    if !src.is_dir() {
+        return Err(format!("instance not found: {from}"));
+    }
+    if dst.exists() {
+        return Err(format!("instance already exists: {to}"));
+    }
+    std::fs::rename(&src, &dst).map_err(|e| e.to_string())?;
+    Ok(dst)
+}
+
+pub fn duplicate_instance(data_root: &Path, from: &str, to: &str) -> Result<PathBuf, String> {
+    let src = data_root.join("instances").join(from);
+    let dst = data_root.join("instances").join(to);
+    if !src.is_dir() {
+        return Err(format!("instance not found: {from}"));
+    }
+    crate::fs::copy_dir_recursive(&src, &dst, &[])
+        .map_err(|e| e.to_string())?;
+    Ok(dst)
+}
+
+#[cfg(test)]
+mod manage_tests {
+    use super::*;
+    #[test]
+    fn create_rename_duplicate_remove() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        let dir = create_instance(root, "A", "1.20.1").unwrap();
+        assert!(dir.join("mmc-pack.json").is_file());
+        assert!(discover_instances(root).iter().any(|i| i.name == "A"));
+        rename_instance(root, "A", "B").unwrap();
+        assert!(discover_instances(root).iter().any(|i| i.name == "B"));
+        duplicate_instance(root, "B", "C").unwrap();
+        assert!(discover_instances(root).iter().any(|i| i.name == "C"));
+        remove_instance(root, "B").unwrap();
+        assert!(!discover_instances(root).iter().any(|i| i.name == "B"));
+    }
+}
