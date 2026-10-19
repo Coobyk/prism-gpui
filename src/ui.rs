@@ -1,6 +1,7 @@
 //! GPUI views. Mirrors launcher/ui/*.
 
 use crate::fs;
+use crate::theme::Theme;
 use gpui::{
     App, Bounds, Context, IntoElement, ParentElement, Render, SharedString, Styled,
     Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
@@ -54,16 +55,18 @@ pub struct InstanceView {
     pub tab: Tab,
     pub entries: Vec<String>,
     pub status: SharedString,
+    pub theme: Theme,
 }
 
 impl InstanceView {
-    pub fn new(name: impl Into<SharedString>, dir: PathBuf) -> Self {
+    pub fn new(name: impl Into<SharedString>, dir: PathBuf, theme: Theme) -> Self {
         let mut v = Self {
             name: name.into(),
             dir,
             tab: Tab::Mods,
             entries: Vec::new(),
             status: "Ready".into(),
+            theme,
         };
         v.refresh();
         v
@@ -99,6 +102,7 @@ impl InstanceView {
 
 impl Render for InstanceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
         let tabs = Tab::ALL
             .iter()
             .enumerate()
@@ -111,8 +115,8 @@ impl Render for InstanceView {
                     .py_1()
                     .rounded_md()
                     .cursor_pointer()
-                    .bg(if selected { rgb(0x89b4fa) } else { rgb(0x313244) })
-                    .text_color(if selected { rgb(0x11111b) } else { rgb(0xcdd6f4) })
+                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.border) })
+                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
                     .child(t.label())
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.tab = t2;
@@ -126,7 +130,7 @@ impl Render for InstanceView {
         let entries = if self.entries.is_empty() {
             vec![div()
                 .p_3()
-                .text_color(rgb(0x6c7086))
+                .text_color(rgb(theme.subtext))
                 .child("(empty)")
                 .into_any_element()]
         } else {
@@ -137,7 +141,7 @@ impl Render for InstanceView {
                         .px_3()
                         .py_1()
                         .border_b_1()
-                        .border_color(rgb(0x313244))
+                        .border_color(rgb(theme.border))
                         .child(e.clone())
                         .into_any_element()
                 })
@@ -148,8 +152,8 @@ impl Render for InstanceView {
             .flex()
             .flex_col()
             .size_full()
-            .bg(rgb(0x1e1e2e))
-            .text_color(rgb(0xcdd6f4))
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
             .child(
                 div()
                     .flex()
@@ -157,11 +161,11 @@ impl Render for InstanceView {
                     .h(px(40.0))
                     .px_4()
                     .gap_2()
-                    .bg(rgb(0x181825))
+                    .bg(rgb(theme.surface))
                     .border_b_1()
-                    .border_color(rgb(0x313244))
+                    .border_color(rgb(theme.border))
                     .child(self.name.clone())
-                    .child(div().ml_auto().text_sm().text_color(rgb(0xa6adc8)).child(self.status.clone())),
+                    .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
             )
             .child(
                 div()
@@ -175,7 +179,7 @@ impl Render for InstanceView {
 }
 
 /// Open a new window showing an instance's contents.
-pub fn open_instance(name: &str, dir: &Path, cx: &mut App) -> Option<gpui::WindowHandle<InstanceView>> {
+pub fn open_instance(name: &str, dir: &Path, theme: Theme, cx: &mut App) -> Option<gpui::WindowHandle<InstanceView>> {
     let name = name.to_string();
     let dir = dir.to_path_buf();
     let bounds = Bounds::centered(None, size(px(800.), px(600.)), cx);
@@ -189,7 +193,7 @@ pub fn open_instance(name: &str, dir: &Path, cx: &mut App) -> Option<gpui::Windo
                 }),
                 ..Default::default()
             },
-            |_, cx| cx.new(|_| InstanceView::new(name.clone(), dir.clone())),
+            |_, cx| cx.new(|_| InstanceView::new(name.clone(), dir.clone(), theme)),
         )
         .ok()?;
     Some(handle)

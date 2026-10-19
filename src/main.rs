@@ -10,12 +10,15 @@ mod launch;
 mod meta;
 mod modplatform;
 mod net;
+mod news;
+mod theme;
 mod pack;
 mod settings;
 mod ui;
 
 use crate::instance::discover_instances;
 use crate::settings::GlobalSettings;
+use crate::theme::Theme;
 use dirs::data_dir;
 use gpui::{
     App, Application, Bounds, Context, SharedString, Window, WindowBounds, WindowOptions, div,
@@ -39,7 +42,7 @@ struct MainWindow {
     java_path: Option<PathBuf>,
     java_count: usize,
     data_root: PathBuf,
-    theme: String,
+    theme: Theme,
     status: SharedString,
 }
 
@@ -87,6 +90,7 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
         let rows: Vec<_> = self
             .instances
             .iter()
@@ -95,6 +99,7 @@ impl Render for MainWindow {
                 let launch_row = row.clone();
                 let open_name = row.name.clone();
                 let open_dir = row.dir.clone();
+                let this_theme = theme;
                 div()
                     .flex()
                     .items_center()
@@ -102,7 +107,7 @@ impl Render for MainWindow {
                     .px_3()
                     .py_2()
                     .border_b_1()
-                    .border_color(rgb(0x313244))
+                    .border_color(rgb(theme.border))
                     .child(
                         div()
                             .id(("open", index_of(&self.instances, &row.name)))
@@ -111,13 +116,13 @@ impl Render for MainWindow {
                             .gap_1()
                             .cursor_pointer()
                             .on_click(cx.listener(move |_this, _, _, cx| {
-                                ui::open_instance(&open_name, &open_dir, cx);
+                                ui::open_instance(&open_name, &open_dir, this_theme, cx);
                             }))
                             .child(div().text_base().child(row.name.clone()))
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(rgb(0xa6adc8))
+                                    .text_color(rgb(theme.subtext))
                                     .child(format!("{} · {} · {}", row.version, row.loader, row.mem)),
                             ),
                     )
@@ -127,8 +132,8 @@ impl Render for MainWindow {
                             .px_3()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(0x89b4fa))
-                            .text_color(rgb(0x11111b))
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
                             .child("Launch")
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -142,7 +147,7 @@ impl Render for MainWindow {
         let body = if rows.is_empty() {
             vec![div()
                 .p_4()
-                .text_color(rgb(0xa6adc8))
+                .text_color(rgb(theme.subtext))
                 .child("No instances found. Set PRISM_DATA_DIR to a Prism data directory.")
                 .into_any_element()]
         } else {
@@ -153,8 +158,8 @@ impl Render for MainWindow {
             .flex()
             .flex_col()
             .size_full()
-            .bg(rgb(0x1e1e2e))
-            .text_color(rgb(0xcdd6f4))
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
             .child(
                 div()
                     .flex()
@@ -162,27 +167,27 @@ impl Render for MainWindow {
                     .h(px(40.0))
                     .px_4()
                     .gap_4()
-                    .bg(rgb(0x181825))
+                    .bg(rgb(theme.surface))
                     .border_b_1()
-                    .border_color(rgb(0x313244))
+                    .border_color(rgb(theme.border))
                     .child(self.title.clone())
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(0xa6adc8))
+                            .text_color(rgb(theme.subtext))
                             .child(format!("{} instances", self.instances.len())),
                     )
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(0xa6adc8))
+                            .text_color(rgb(theme.subtext))
                             .child(format!("{} java", self.java_count)),
                     )
                     .child(
                         div()
                             .ml_auto()
                             .text_sm()
-                            .text_color(rgb(0xa6adc8))
+                            .text_color(rgb(theme.subtext))
                             .child(self.status.clone()),
                     ),
             )
@@ -253,14 +258,14 @@ fn main() {
     let java = java::discover_java(&root);
     let java_path = java.first().map(|j| j.path.clone());
     let java_count = java.len();
-    let theme = settings.theme.clone();
+    let theme = Theme::for_name(&settings.theme);
 
     let shared_root = Arc::new(root);
     Application::new().run(move |cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(1024.), px(720.)), cx);
         let rows = rows.clone();
         let root = shared_root.clone();
-        let theme = theme.clone();
+        let theme = theme;
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
