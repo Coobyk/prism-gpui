@@ -6,7 +6,10 @@ pub mod curseforge;
 pub mod ftb;
 pub mod modrinth;
 pub mod packwiz;
+pub mod platform;
 pub mod technic;
+
+pub use platform::{ContentKind, Platform, PlatformHit, SearchQuery};
 
 pub trait ModProvider {
     fn name(&self) -> &'static str;

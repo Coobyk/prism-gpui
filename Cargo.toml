@@ -8,8 +8,9 @@ gpui = "0.2.2"
 dirs = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "2", features = ["json", "socks-proxy", "gzip"] }
 sha1 = "0.10"
+sha2 = "0.10"
 md-5 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
@@ -17,6 +18,8 @@ walkdir = "2"
 toml = "0.8"
 uuid = { version = "1", features = ["v4"] }
 unicode-segmentation = "1"
+libloading = "0.8"
+semver = "1"
 
 [dev-dependencies]
 tempfile = "3"

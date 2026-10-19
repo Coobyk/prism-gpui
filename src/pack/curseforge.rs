@@ -45,7 +45,8 @@ struct CfFile {
     required: bool,
 }
 
-pub fn manifest_from_pack(pack: &Path) -> Result<PackManifest, String> {
+/// Parse the raw `manifest.json` from a CurseForge pack.
+fn parse_manifest(pack: &Path) -> Result<Manifest, String> {
     let file = std::fs::File::open(pack).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     let mut text = String::new();
@@ -55,7 +56,11 @@ pub fn manifest_from_pack(pack: &Path) -> Result<PackManifest, String> {
             .map_err(|_| "not a CurseForge pack (missing manifest.json)")?;
         std::io::Read::read_to_string(&mut entry, &mut text).map_err(|e| e.to_string())?;
     }
-    let m: Manifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
+}
+
+pub fn manifest_from_pack(pack: &Path) -> Result<PackManifest, String> {
+    let m = parse_manifest(pack)?;
     let mut deps = PackDependencies {
         minecraft: Some(m.minecraft.version.clone()),
         ..Default::default()
@@ -87,6 +92,23 @@ pub fn manifest_from_pack(pack: &Path) -> Result<PackManifest, String> {
             })
             .collect(),
     })
+}
+
+/// Install a CurseForge pack into `instance_dir` (creating `minecraft/`),
+/// downloading each declared project file through the CurseForge API and then
+/// extracting the pack overrides.
+pub fn install(pack: &Path, instance_dir: &Path) -> Result<PackManifest, String> {
+    let raw = parse_manifest(pack)?;
+    let mc_dir = instance_dir.join("minecraft");
+    let mods_dir = mc_dir.join("mods");
+    std::fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
+    let cf = crate::modplatform::curseforge::CurseForge;
+    for f in raw.files.iter().filter(|f| f.required) {
+        cf.download_file(&f.project_id.to_string(), f.file_id, &mods_dir)
+            .map_err(|e| format!("project {} file {}: {e}", f.project_id, f.file_id))?;
+    }
+    extract_overrides(pack, instance_dir)?;
+    manifest_from_pack(pack)
 }
 
 /// Extract a CurseForge pack's overrides into `instance_dir/minecraft`.

@@ -5,7 +5,9 @@ use crate::{instance, java, launch, meta};
 use std::path::Path;
 
 pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
-    crate::net::set_proxy(crate::settings::GlobalSettings::load(data_root).proxy_url());
+    let settings = crate::settings::GlobalSettings::load(data_root);
+    crate::net::set_proxy(settings.proxy_url());
+    crate::modplatform::curseforge::set_api_key(settings.curseforge_api_key());
     match args.first().map(|s| s.as_str()) {
         Some("list") => cmd_list(data_root),
         Some("java") => cmd_java(data_root),
@@ -19,6 +21,72 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let q = args.get(2).ok_or("usage: search-type <type> <query>")?;
             cmd_search_typed(kind, q);
             Ok(())
+        }
+        Some("platforms") => {
+            for p in crate::modplatform::Platform::ALL {
+                let key = if p.needs_api_key() {
+                    if crate::modplatform::curseforge::has_api_key() {
+                        "api key: set"
+                    } else {
+                        "api key: missing"
+                    }
+                } else {
+                    ""
+                };
+                println!(
+                    "{:<12} mods={:<5} packs={:<5} {}",
+                    p.label(),
+                    p.supports_mods(),
+                    p.supports_packs(),
+                    key
+                );
+            }
+            Ok(())
+        }
+        Some("search-platform") => {
+            let platform = args
+                .get(1)
+                .ok_or("usage: search-platform <platform> <kind> <query> [mc] [loader]")?;
+            let kind = args
+                .get(2)
+                .ok_or("usage: search-platform <platform> <kind> <query> [mc] [loader]")?;
+            let query = args.get(3).map(|s| s.as_str()).unwrap_or("");
+            let mc = args.get(4).map(|s| s.as_str());
+            let loader = args.get(5).map(|s| s.as_str());
+            cmd_search_platform(platform, kind, query, mc, loader)
+        }
+        Some("install-mod") => {
+            let platform = args.get(1).ok_or("usage: install-mod <platform> <id> <instance>")?;
+            let id = args.get(2).ok_or("usage: install-mod <platform> <id> <instance>")?;
+            let inst = args.get(3).ok_or("usage: install-mod <platform> <id> <instance>")?;
+            cmd_install_mod(data_root, platform, id, inst)
+        }
+        Some("install-ftb") => {
+            let id = args.get(1).ok_or("usage: install-ftb <pack-id> [version] [name]")?;
+            let version = args.get(2).map(|s| s.as_str());
+            let name = args.get(3).map(|s| s.as_str());
+            cmd_install_ftb(data_root, id, version, name)
+        }
+        Some("install-technic") => {
+            let slug = args.get(1).ok_or("usage: install-technic <slug> [name]")?;
+            let name = args.get(2).map(|s| s.as_str());
+            cmd_install_technic(data_root, slug, name)
+        }
+        Some("install-atl") => {
+            let safe = args.get(1).ok_or("usage: install-atl <safe-name> [version] [name]")?;
+            let version = args.get(2).map(|s| s.as_str());
+            let name = args.get(3).map(|s| s.as_str());
+            cmd_install_atl(data_root, safe, version, name)
+        }
+        Some("install-packwiz") => {
+            let url = args.get(1).ok_or("usage: install-packwiz <url|file> [name]")?;
+            let name = args.get(2).map(|s| s.as_str());
+            cmd_install_packwiz(data_root, url, name)
+        }
+        Some("install-pack-cf") => {
+            let id = args.get(1).ok_or("usage: install-pack-cf <mod-id> [name]")?;
+            let name = args.get(2).map(|s| s.as_str());
+            cmd_install_pack_cf(data_root, id, name)
         }
         Some("check-mods") => {
             let name = args.get(1).ok_or("usage: check-mods <instance>")?;
@@ -414,6 +482,14 @@ fn print_help() {
     println!("  search-type <type> <query>  search Modrinth by project type");
     println!("  check-mods <instance>  look up installed mods on Modrinth");
     println!("  install-pack <slug> [name]  install a Modrinth modpack");
+    println!("  platforms         list content platforms and their status");
+    println!("  search-platform <platform> <kind> <query> [mc] [loader]  search any platform");
+    println!("  install-mod <platform> <id> <instance>  install a mod from any platform");
+    println!("  install-pack-cf <project-id> [name]  install a CurseForge modpack");
+    println!("  install-ftb <pack-id> [version] [name]  install an FTB modpack");
+    println!("  install-technic <slug> [name]  install a Technic modpack");
+    println!("  install-atl <safe-name> [version] [name]  install an ATLauncher modpack");
+    println!("  install-packwiz <url|file> [name]  install a packwiz pack");
     println!("  login             sign in with a Microsoft account");
     println!("  add-offline <name>  add an offline account");
     println!("  accounts          list saved accounts");
@@ -611,6 +687,351 @@ fn find_instance(data_root: &Path, name: &str) -> Result<instance::Instance, Str
         .into_iter()
         .find(|i| i.name == name)
         .ok_or_else(|| format!("instance not found: {name}"))
+}
+
+// ---- Unified platform commands ----
+
+fn parse_kind(s: &str) -> Result<crate::modplatform::ContentKind, String> {
+    use crate::modplatform::ContentKind;
+    match s.trim().to_ascii_lowercase().as_str() {
+        "mod" | "mods" => Ok(ContentKind::Mod),
+        "modpack" | "modpacks" | "pack" => Ok(ContentKind::Modpack),
+        "resourcepack" | "resourcepacks" | "rp" => Ok(ContentKind::ResourcePack),
+        "shader" | "shaders" | "shaderpack" => Ok(ContentKind::Shader),
+        other => Err(format!("unknown content kind: {other}")),
+    }
+}
+
+fn parse_platform(s: &str) -> Result<crate::modplatform::Platform, String> {
+    crate::modplatform::Platform::from_name(s)
+        .ok_or_else(|| format!("unknown platform: {s} (try mr, cf, ftb, technic, atl)"))
+}
+
+/// The Minecraft version and loader of an instance, derived from its
+/// component pack.
+fn instance_target(inst_dir: &Path) -> (Option<String>, Option<String>) {
+    let mut mc = None;
+    let mut loader = None;
+    if let Some(pack) = meta::read_component_pack(inst_dir) {
+        for c in &pack.components {
+            if c.uid == "net.minecraft" {
+                mc = Some(c.version.clone());
+            } else if !c.dependency_only {
+                let name = match c.uid.as_str() {
+                    "net.fabricmc.fabric-loader" => "fabric",
+                    "net.minecraftforge" => "forge",
+                    "net.neoforged" => "neoforge",
+                    "org.quiltmc.quilt-loader" => "quilt",
+                    _ => continue,
+                };
+                loader = Some(name.to_string());
+            }
+        }
+    }
+    (mc, loader)
+}
+
+fn cmd_search_platform(
+    platform: &str,
+    kind: &str,
+    query: &str,
+    mc: Option<&str>,
+    loader: Option<&str>,
+) -> Result<(), String> {
+    let platform = parse_platform(platform)?;
+    let kind = parse_kind(kind)?;
+    let q = crate::modplatform::SearchQuery::new(query)
+        .with_game_version(mc.map(|s| s.to_string()))
+        .with_loader(loader.map(|s| s.to_string()));
+    let hits = crate::modplatform::platform::search(platform, kind, &q)?;
+    if hits.is_empty() {
+        println!("(no results)");
+    }
+    for h in hits {
+        println!(
+            "{:<28} {:<12} {:<10} {}",
+            h.title,
+            h.id,
+            format_count(h.downloads),
+            truncate(&h.description, 60)
+        );
+    }
+    Ok(())
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    let cleaned = s.replace('\n', " ");
+    if cleaned.chars().count() <= n {
+        cleaned
+    } else {
+        let mut out: String = cleaned.chars().take(n.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
+}
+
+/// Compact download/install counts (1.2k, 3.4M).
+fn format_count(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
+/// Create an instance directory with `instance.cfg` and the given components.
+fn create_instance_with_components(
+    data_root: &Path,
+    name: &str,
+    components: &[(String, String)],
+) -> Result<std::path::PathBuf, String> {
+    let settings = crate::settings::GlobalSettings::load(data_root);
+    let dir = instance::instances_dir(data_root).join(name);
+    if dir.exists() {
+        return Err(format!("instance already exists: {name}"));
+    }
+    std::fs::create_dir_all(dir.join("minecraft")).map_err(|e| e.to_string())?;
+    let cfg = format!(
+        "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nname={name}\nMinMemAlloc={}\nMaxMemAlloc={}\n",
+        settings.min_mem(),
+        settings.max_mem()
+    );
+    std::fs::write(dir.join("instance.cfg"), cfg).map_err(|e| e.to_string())?;
+    let mut comps: Vec<(String, String)> = components.to_vec();
+    if !comps.iter().any(|(u, _)| u == "net.minecraft") {
+        comps.insert(0, ("net.minecraft".into(), "1.20.1".into()));
+    }
+    for (uid, version) in &comps {
+        let _ = meta::set_component(&dir, uid, version);
+    }
+    Ok(dir)
+}
+
+fn sanitize_name(name: &str) -> String {
+    name.replace(['/', '\\', ':'], "_").trim().to_string()
+}
+
+fn cmd_install_mod(
+    data_root: &Path,
+    platform: &str,
+    id: &str,
+    instance_name: &str,
+) -> Result<(), String> {
+    let platform = parse_platform(platform)?;
+    let inst = find_instance(data_root, instance_name)?;
+    let (mc, loader) = instance_target(&inst.dir);
+    let (subdir, kind) = ("mods", crate::modplatform::ContentKind::Mod);
+    let hit = crate::modplatform::PlatformHit {
+        platform,
+        kind,
+        id: id.to_string(),
+        slug: id.to_string(),
+        title: id.to_string(),
+        description: String::new(),
+        downloads: 0,
+        extra: String::new(),
+    };
+    let dest = inst.dir.join("minecraft").join(subdir);
+    let summary = crate::modplatform::platform::install(
+        &hit,
+        &dest,
+        mc.as_deref(),
+        loader.as_deref(),
+    )?;
+    println!("{summary}");
+    Ok(())
+}
+
+fn cmd_install_ftb(
+    data_root: &Path,
+    id: &str,
+    version: Option<&str>,
+    name: Option<&str>,
+) -> Result<(), String> {
+    let pack_id: u64 = id.parse().map_err(|_| format!("invalid FTB pack id: {id}"))?;
+    let version_id = match version {
+        Some(v) if !v.is_empty() => Some(v.parse::<u64>().map_err(|_| format!("invalid version: {v}"))?),
+        _ => None,
+    };
+    let info = crate::modplatform::ftb::Ftb
+        .pack_info(pack_id)
+        .map_err(|e| format!("cannot fetch pack {id}: {e}"))?;
+    let components = crate::modplatform::ftb::Ftb
+        .manifest(pack_id, version_id)
+        .map(|m| m.components())
+        .unwrap_or_default();
+    let dir_name = sanitize_name(name.unwrap_or(&info.name));
+    let inst_dir = create_instance_with_components(data_root, &dir_name, &components)?;
+    let game_dir = inst_dir.join("minecraft");
+    let manifest = crate::modplatform::ftb::Ftb.install(pack_id, version_id, &game_dir)?;
+    println!(
+        "installed FTB pack {} v{} ({} files) → {}",
+        manifest.name,
+        manifest.version,
+        manifest.files.len(),
+        inst_dir.display()
+    );
+    Ok(())
+}
+
+fn cmd_install_technic(data_root: &Path, slug: &str, name: Option<&str>) -> Result<(), String> {
+    let pack = crate::modplatform::technic::Technic
+        .pack(slug)
+        .map_err(|e| format!("cannot fetch Technic pack {slug}: {e}"))?;
+    let mc = pack.minecraft.clone();
+    let components = vec![("net.minecraft".to_string(), mc.clone())];
+    let dir_name = sanitize_name(name.unwrap_or(&pack.title()));
+    let inst_dir = create_instance_with_components(data_root, &dir_name, &components)?;
+    let game_dir = inst_dir.join("minecraft");
+    let summary = crate::modplatform::technic::Technic.install(slug, &game_dir)?;
+    println!("{summary} → {}", inst_dir.display());
+    Ok(())
+}
+
+fn cmd_install_atl(
+    data_root: &Path,
+    safe_name: &str,
+    version: Option<&str>,
+    name: Option<&str>,
+) -> Result<(), String> {
+    let atl = crate::modplatform::atlauncher::AtLauncher;
+    let packs = atl.packs()?;
+    let pack = packs
+        .iter()
+        .find(|p| p.safe_name().eq_ignore_ascii_case(safe_name))
+        .ok_or_else(|| format!("ATLauncher pack not found: {safe_name}"))?;
+    let version = match version {
+        Some(v) if !v.is_empty() => v.to_string(),
+        _ => pack
+            .latest_version()
+            .map(|v| v.version.clone())
+            .ok_or("pack has no versions")?,
+    };
+    let mc = pack
+        .latest_version()
+        .map(|v| v.minecraft.clone())
+        .unwrap_or_default();
+    let components = vec![("net.minecraft".to_string(), mc)];
+    let dir_name = sanitize_name(name.unwrap_or(&pack.name));
+    let inst_dir = create_instance_with_components(data_root, &dir_name, &components)?;
+    let game_dir = inst_dir.join("minecraft");
+    let (n, blocked) = atl.install(&pack.safe_name(), &version, &game_dir)?;
+    println!(
+        "installed ATLauncher pack {} v{version} ({n} files) → {}",
+        pack.name,
+        inst_dir.display()
+    );
+    if !blocked.is_empty() {
+        println!("mods needing manual download ({}):", blocked.len());
+        for b in blocked {
+            println!("  - {b}");
+        }
+    }
+    Ok(())
+}
+
+fn cmd_install_packwiz(
+    data_root: &Path,
+    url: &str,
+    name: Option<&str>,
+) -> Result<(), String> {
+    let local = Path::new(url);
+    let (zip_path, cleanup) = if local.is_file() {
+        (local.to_path_buf(), false)
+    } else {
+        let tmp = std::env::temp_dir().join(format!("prism-packwiz-{}.zip", std::process::id()));
+        crate::net::download_verified(url, &tmp, None)?;
+        (tmp, true)
+    };
+    // Inspect pack.toml first so components can be applied.
+    let probe = std::env::temp_dir().join(format!("prism-pw-probe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&probe);
+    std::fs::create_dir_all(&probe).map_err(|e| e.to_string())?;
+    crate::fs::extract_zip(&zip_path, &probe, true)?;
+    let pack_dir = if probe.join("pack.toml").is_file() {
+        probe.clone()
+    } else {
+        crate::fs::list_files(&probe)
+            .into_iter()
+            .find(|p| p.file_name().map(|n| n == "pack.toml").unwrap_or(false))
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .ok_or("no pack.toml found in archive")?
+    };
+    let pack = crate::modplatform::packwiz::read_pack(&pack_dir)?;
+    let components = pack.components();
+    let dir_name = sanitize_name(name.unwrap_or(&pack.name));
+    let inst_dir = create_instance_with_components(data_root, &dir_name, &components)?;
+    let game_dir = inst_dir.join("minecraft");
+    let (installed, skipped) =
+        crate::modplatform::packwiz::install_from_dir(&pack_dir, &game_dir, "client")?;
+    let _ = std::fs::remove_dir_all(&probe);
+    if cleanup {
+        let _ = std::fs::remove_file(&zip_path);
+    }
+    println!(
+        "installed packwiz pack {} ({installed} files, {} skipped) → {}",
+        pack.name,
+        skipped.len(),
+        inst_dir.display()
+    );
+    for s in skipped.iter().take(20) {
+        println!("  skipped: {s}");
+    }
+    Ok(())
+}
+
+fn cmd_install_pack_cf(data_root: &Path, id: &str, name: Option<&str>) -> Result<(), String> {
+    let cf = crate::modplatform::curseforge::CurseForge;
+    let file = cf
+        .latest_any(id)?
+        .ok_or_else(|| format!("no files for CurseForge project {id}"))?;
+    let url = file
+        .resolved_url()
+        .ok_or("pack file has no download URL")?;
+    let tmp_dir = std::env::temp_dir().join(format!("prism-cfpack-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+    let pack_path = tmp_dir.join(if file.file_name.is_empty() {
+        "pack.zip".to_string()
+    } else {
+        file.file_name.clone()
+    });
+    crate::net::download_verified(&url, &pack_path, None)?;
+    let manifest = crate::pack::curseforge::manifest_from_pack(&pack_path)?;
+    let components: Vec<(String, String)> = {
+        let d = &manifest.dependencies;
+        let mut v = Vec::new();
+        if let Some(mc) = &d.minecraft {
+            v.push(("net.minecraft".to_string(), mc.clone()));
+        }
+        if let Some(f) = &d.fabric_loader {
+            v.push(("net.fabricmc.fabric-loader".to_string(), f.clone()));
+        }
+        if let Some(f) = &d.forge {
+            v.push(("net.minecraftforge".to_string(), f.clone()));
+        }
+        if let Some(f) = &d.neo_forge {
+            v.push(("net.neoforged".to_string(), f.clone()));
+        }
+        if let Some(f) = &d.quilt_loader {
+            v.push(("org.quiltmc.quilt-loader".to_string(), f.clone()));
+        }
+        v
+    };
+    let dir_name = sanitize_name(name.unwrap_or(&manifest.name));
+    let inst_dir = create_instance_with_components(data_root, &dir_name, &components)?;
+    let installed = crate::pack::curseforge::install(&pack_path, &inst_dir)?;
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    println!(
+        "installed CurseForge pack {} v{} ({} mods) → {}",
+        installed.name,
+        installed.version,
+        installed.files.len(),
+        inst_dir.display()
+    );
+    Ok(())
 }
 
 fn human_size(bytes: u64) -> String {

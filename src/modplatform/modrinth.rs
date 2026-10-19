@@ -82,10 +82,26 @@ fn ureq_get(url: &str) -> Result<String, ()> {
 
 #[derive(Deserialize)]
 pub struct VersionInfo {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub project_id: String,
     pub version_number: String,
     pub game_versions: Vec<String>,
     pub loaders: Vec<String>,
     pub files: Vec<VersionFile>,
+    #[serde(default)]
+    pub dependencies: Vec<VersionDependency>,
+}
+
+#[derive(Deserialize)]
+pub struct VersionDependency {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub version_id: Option<String>,
+    #[serde(default, rename = "dependency_type")]
+    pub dependency_type: String,
 }
 
 #[derive(Deserialize)]
@@ -94,6 +110,31 @@ pub struct VersionFile {
     pub filename: String,
     #[serde(default)]
     pub primary: bool,
+    #[serde(default)]
+    pub hashes: Hashes,
+}
+
+#[derive(Deserialize, Default)]
+pub struct Hashes {
+    #[serde(default)]
+    pub sha1: String,
+    #[serde(default)]
+    pub sha512: String,
+}
+
+impl VersionInfo {
+    /// The primary file, falling back to the first listed.
+    pub fn primary_file(&self) -> Option<&VersionFile> {
+        self.files.iter().find(|f| f.primary).or_else(|| self.files.first())
+    }
+}
+
+impl Modrinth {
+    /// Fetch a version by id.
+    pub fn version_by_id(&self, id: &str) -> Result<VersionInfo, String> {
+        let body = crate::net::get_string(&format!("https://api.modrinth.com/v2/version/{id}"))?;
+        serde_json::from_str(&body).map_err(|e| e.to_string())
+    }
 }
 
 impl Modrinth {
@@ -184,13 +225,12 @@ impl Modrinth {
             .ok_or("version has no files")?;
         std::fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
         let dest = dest_dir.join(&file.filename);
-        let resp = crate::net::agent()
-            .get(&file.url)
-            .call()
-            .map_err(|e| e.to_string())?;
-        let mut reader = resp.into_reader();
-        let mut out = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
-        std::io::copy(&mut reader, &mut out).map_err(|e| e.to_string())?;
+        let sha = if file.hashes.sha1.is_empty() {
+            None
+        } else {
+            Some(file.hashes.sha1.as_str())
+        };
+        crate::net::download_verified(&file.url, &dest, sha)?;
         Ok(dest)
     }
 }
