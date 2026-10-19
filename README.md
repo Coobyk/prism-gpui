@@ -6,7 +6,20 @@ Prism Launcher rewritten in Rust + GPUI.
 
 ```sh
 cargo build
-cargo run
+cargo run           # GUI
+cargo run -- list   # headless CLI
+```
+
+## CLI
+
+```
+prism-gpui list                     list instances
+prism-gpui java                     list Java installations
+prism-gpui update <instance>        download missing libraries/assets
+prism-gpui assets <instance> [max]  download missing asset objects
+prism-gpui search <query>           search Modrinth
+prism-gpui install <instance> <slug>  install a Modrinth mod
+prism-gpui launch <instance>        launch (foreground)
 ```
 
 System deps (Linux): `libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libfreetype-dev`.
