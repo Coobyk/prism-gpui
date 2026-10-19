@@ -64,14 +64,9 @@ fn urlencoding(s: &str) -> String {
 }
 
 fn ureq_get(url: &str) -> Result<String, ()> {
-    // Use std::process? Simpler: shell out to curl if available.
-    let out = std::process::Command::new("curl")
-        .arg("-sS")
-        .arg(url)
-        .output()
+    let resp = ureq::get(url)
+        .set("User-Agent", "prism-gpui/0.1 (github.com/Coobyk/prism-gpui)")
+        .call()
         .map_err(|_| ())?;
-    if !out.status.success() {
-        return Err(());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    resp.into_string().map_err(|_| ())
 }
