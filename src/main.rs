@@ -61,10 +61,18 @@ impl MainWindow {
             cx.notify();
             return;
         };
-        match launch::build_profile(&row.dir, &self.data_root, &java) {
+        let account = crate::accounts::AccountStore::load(&self.data_root)
+            .active_account()
+            .cloned();
+        match launch::build_profile_with_account(&row.dir, &self.data_root, &java, account.as_ref())
+        {
             Some(profile) => {
                 console::open_console(profile, row.name.clone(), self.theme, cx);
-                self.status = format!("Launched {}", row.name).into();
+                let who = account
+                    .as_ref()
+                    .map(|a| a.username.clone())
+                    .unwrap_or_else(|| "offline".into());
+                self.status = format!("Launched {} as {}", row.name, who).into();
             }
             None => {
                 self.status = format!("Cannot launch {}: missing metadata", row.name).into();

@@ -619,12 +619,17 @@ fn cmd_launch(data_root: &Path, name: &str) -> Result<(), String> {
         .into_iter()
         .next()
         .ok_or("no Java installation found")?;
-    let profile = launch::build_profile(&inst.dir, data_root, &java.path)
-        .ok_or("could not build launch profile")?;
+    let account = crate::accounts::AccountStore::load(data_root)
+        .active_account()
+        .cloned();
+    let profile =
+        launch::build_profile_with_account(&inst.dir, data_root, &java.path, account.as_ref())
+            .ok_or("could not build launch profile")?;
     println!(
-        "launching {} with {} ({} jars, main {})",
+        "launching {} with {} as {} ({} jars, main {})",
         inst.name,
         java.path.display(),
+        account.as_ref().map(|a| a.username.as_str()).unwrap_or("offline"),
         profile.classpath.len(),
         profile.main_class
     );

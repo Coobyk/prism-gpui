@@ -41,11 +41,22 @@ impl LaunchProfile {
     }
 }
 
-/// Build a launch profile for an instance from Prism metadata.
+/// Build a launch profile for an instance without an account (offline/dev).
 pub fn build_profile(
     inst_dir: &Path,
     data_root: &Path,
     java_path: &Path,
+) -> Option<LaunchProfile> {
+    build_profile_with_account(inst_dir, data_root, java_path, None)
+}
+
+/// Build a launch profile for an instance from Prism metadata, substituting the
+/// given account's identity and access token into the game arguments.
+pub fn build_profile_with_account(
+    inst_dir: &Path,
+    data_root: &Path,
+    java_path: &Path,
+    account: Option<&crate::auth::Account>,
 ) -> Option<LaunchProfile> {
     let pack = meta::read_component_pack(inst_dir)?;
     let meta_dir = data_root.join("meta");
@@ -97,15 +108,24 @@ pub fn build_profile(
             game_args = raw.split_whitespace().map(|s| s.to_string()).collect();
         }
     }
+    let player_name = account.map(|a| a.username.clone()).unwrap_or_else(|| "Player".into());
+    let player_uuid = account
+        .map(|a| a.uuid.clone())
+        .unwrap_or_else(|| "00000000000000000000000000000000".to_string());
+    let access_token = account
+        .map(|a| a.access_token.clone())
+        .unwrap_or_else(|| "0".to_string());
+    let user_type = if account.is_some() { "msa" } else { "legacy" };
     let substitutions = [
-        ("${auth_player_name}", "Player"),
+        ("${auth_player_name}", player_name.as_str()),
         ("${version_name}", version.id.as_str()),
         ("${game_directory}", game_dir.to_str().unwrap_or(".")),
         ("${assets_root}", assets_dir.to_str().unwrap_or(".")),
         ("${assets_index_name}", version.asset_index.as_ref().map(|a| a.id.as_str()).unwrap_or("")),
-        ("${auth_uuid}", "00000000000000000000000000000000"),
-        ("${auth_access_token}", "0"),
-        ("${user_type}", "legacy"),
+        ("${auth_uuid}", player_uuid.as_str()),
+        ("${auth_access_token}", access_token.as_str()),
+        ("${auth_session}", access_token.as_str()),
+        ("${user_type}", user_type),
         ("${version_type}", version.version_type.as_str()),
         ("${user_properties}", "{}"),
     ];

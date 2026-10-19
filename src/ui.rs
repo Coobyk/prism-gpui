@@ -1,6 +1,5 @@
 //! GPUI views. Mirrors launcher/ui/*.
 
-use crate::fs;
 use crate::theme::Theme;
 use gpui::{
     App, Bounds, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -216,10 +215,14 @@ impl Render for InstanceView {
                                     .into_iter()
                                     .next();
                                 if let Some(java) = java {
-                                    if let Some(profile) = crate::launch::build_profile(
+                                    let account = crate::accounts::AccountStore::load(&this.data_root)
+                                        .active_account()
+                                        .cloned();
+                                    if let Some(profile) = crate::launch::build_profile_with_account(
                                         &this.dir,
                                         &this.data_root,
                                         &java.path,
+                                        account.as_ref(),
                                     ) {
                                         crate::console::open_console(
                                             profile,
