@@ -305,6 +305,21 @@ impl Render for InstanceView {
                     )
                     .child(
                         div()
+                            .id("view-servers")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Servers")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                crate::ui::open_servers(this.dir.clone(), theme, cx);
+                            })),
+                    )
+                    .child(
+                        div()
                             .id("view-screenshots")
                             .px_3()
                             .py_1()
@@ -1075,6 +1090,90 @@ pub fn open_skin(
             ..Default::default()
         },
         move |_, cx| cx.new(|cx| SkinView::new(uuid.clone(), username.clone(), theme, cx)),
+    )
+    .ok()
+}
+
+// ---- Server list window ----
+
+pub struct ServersView {
+    servers: Vec<crate::servers::Server>,
+    theme: Theme,
+}
+
+impl ServersView {
+    pub fn new(instance_dir: &Path, theme: Theme) -> Self {
+        Self {
+            servers: crate::servers::list_servers(instance_dir),
+            theme,
+        }
+    }
+}
+
+impl Render for ServersView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let rows: Vec<_> = if self.servers.is_empty() {
+            vec![div()
+                .p_3()
+                .text_color(rgb(theme.subtext))
+                .child("(no servers)")
+                .into_any_element()]
+        } else {
+            self.servers
+                .iter()
+                .map(|s| {
+                    div()
+                        .flex()
+                        .justify_between()
+                        .px_3()
+                        .py_2()
+                        .border_b_1()
+                        .border_color(rgb(theme.border))
+                        .child(s.name.clone())
+                        .child(div().text_color(rgb(theme.subtext)).child(s.ip.clone()))
+                        .into_any_element()
+                })
+                .collect()
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .h(px(36.0))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(format!("Servers ({})", self.servers.len())),
+            )
+            .child(div().flex_1().flex().flex_col().overflow_hidden().children(rows))
+    }
+}
+
+pub fn open_servers(
+    instance_dir: PathBuf,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<ServersView>> {
+    let bounds = Bounds::centered(None, size(px(560.), px(480.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Servers — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|_| ServersView::new(&instance_dir, theme)),
     )
     .ok()
 }
