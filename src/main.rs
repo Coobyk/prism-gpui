@@ -1384,6 +1384,20 @@ fn main() {
                     };
                     ui::open_skin(uuid, name, theme, (*root).clone(), token, cx);
                 }
+                "groups" => {
+                    let rows = instance_rows(&root);
+                    if let Some(row) = rows.first() {
+                        let groups = crate::groups::GroupStore::load(&root);
+                        let current = groups.group_of(&row.name).map(|s| s.to_string());
+                        ui::open_groups(
+                            (*root).clone(),
+                            row.name.clone(),
+                            current,
+                            theme,
+                            cx,
+                        );
+                    }
+                }
                 "browse" => {
                     let rows = instance_rows(&root);
                     if let Some(row) = rows.first() {
