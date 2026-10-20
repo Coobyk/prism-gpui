@@ -2504,6 +2504,270 @@ pub fn open_skin(
     .ok()
 }
 
+// ---- Accounts window ----
+
+/// Manage the accounts the launcher can launch with, like Prism's
+/// `AccountListPage`.
+pub struct AccountsView {
+    data_root: PathBuf,
+    accounts: Vec<crate::auth::Account>,
+    active: Option<String>,
+    status: SharedString,
+    theme: Theme,
+}
+
+impl AccountsView {
+    pub fn new(data_root: PathBuf, theme: Theme, cx: &mut Context<Self>) -> Self {
+        let store = crate::accounts::AccountStore::load(&data_root);
+        Self {
+            data_root,
+            accounts: store.accounts,
+            active: store.active,
+            status: "Ready".into(),
+            theme,
+        }
+    }
+
+    fn reload(&mut self) {
+        let store = crate::accounts::AccountStore::load(&self.data_root);
+        self.accounts = store.accounts;
+        self.active = store.active;
+    }
+
+    /// Start the Microsoft device-code sign-in flow.
+    fn sign_in(&mut self, cx: &mut Context<Self>) {
+        self.status = "Waiting for the sign-in to finish…".into();
+        cx.notify();
+        let root = self.data_root.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let auth = crate::auth::AuthService::new();
+                    auth.login_interactive(|dc| {
+                        eprintln!(
+                            "To sign in, open {} and enter the code: {}",
+                            dc.verification_uri, dc.user_code
+                        );
+                    })
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(account) => {
+                        let mut store = crate::accounts::AccountStore::load(&root);
+                        store.upsert(account.clone());
+                        let _ = store.save(&root);
+                        this.reload();
+                        this.status = format!("Signed in as {}", account.username).into();
+                    }
+                    Err(e) => this.status = format!("Sign-in failed: {e}").into(),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Add an offline account with a generated UUID.
+    fn add_offline(&mut self, name: String, cx: &mut Context<Self>) {
+        if name.trim().is_empty() {
+            return;
+        }
+        let account = crate::accounts::offline_account(name.trim());
+        let mut store = crate::accounts::AccountStore::load(&self.data_root);
+        store.upsert(account.clone());
+        let _ = store.save(&self.data_root);
+        self.reload();
+        self.status = format!("Added offline account {}", account.username).into();
+        cx.notify();
+    }
+
+    /// Make an account the active one.
+    fn activate(&mut self, uuid: String, cx: &mut Context<Self>) {
+        let mut store = crate::accounts::AccountStore::load(&self.data_root);
+        store.active = Some(uuid.clone());
+        let _ = store.save(&self.data_root);
+        self.active = Some(uuid);
+        self.status = "Active account updated".into();
+        cx.notify();
+    }
+
+    /// Remove an account.
+    fn remove(&mut self, uuid: String, cx: &mut Context<Self>) {
+        let mut store = crate::accounts::AccountStore::load(&self.data_root);
+        store.remove(&uuid);
+        let _ = store.save(&self.data_root);
+        self.reload();
+        self.status = "Account removed".into();
+        cx.notify();
+    }
+}
+
+impl Render for AccountsView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let active = self.active.clone();
+        let rows: Vec<AnyElement> = self
+            .accounts
+            .iter()
+            .map(|account| {
+                let is_active = active.as_deref() == Some(account.uuid.as_str());
+                let uuid_use = account.uuid.clone();
+                let uuid_remove = account.uuid.clone();
+                let e_use = cx.entity();
+                let e_remove = e_use.clone();
+                div()
+                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                        "account-{}",
+                        account.uuid
+                    ))))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_base()
+                                    .child(if is_active {
+                                        format!("{} (active)", account.username)
+                                    } else {
+                                        account.username.clone()
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(theme.subtext))
+                                    .child(account.uuid.clone()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                                        "use-{}",
+                                        account.uuid
+                                    ))))
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child("Use")
+                                    .on_click(move |_, _, cx| {
+                                        let u = uuid_use.clone();
+                                        e_use.update(cx, |this, cx| this.activate(u, cx));
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                                        "remove-{}",
+                                        account.uuid
+                                    ))))
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child("Remove")
+                                    .on_click(move |_, _, cx| {
+                                        let u = uuid_remove.clone();
+                                        e_remove.update(cx, |this, cx| this.remove(u, cx));
+                                    }),
+                            ),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .h(px(40.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(div().text_lg().child("Accounts"))
+                    .child(
+                        div()
+                            .id("account-signin")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child("Add Microsoft account")
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                this.sign_in(cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .children(rows),
+            )
+    }
+}
+
+pub fn open_accounts(
+    data_root: PathBuf,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<AccountsView>> {
+    let bounds = Bounds::centered(None, size(px(480.), px(420.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Accounts — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|cx| AccountsView::new(data_root.clone(), theme, cx)),
+    )
+    .ok()
+}
+
 // ---- Server list window ----
 
 pub struct ServersView {

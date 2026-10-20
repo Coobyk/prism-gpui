@@ -3,6 +3,40 @@
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+/// The translator used by the UI, loaded once at start-up.
+static CURRENT: OnceLock<Translator> = OnceLock::new();
+
+/// Load the catalog for `lang` and make it the one the UI uses.
+///
+/// The language follows the `Language` setting; `UseSystemLocale` picks it up
+/// from the environment when enabled.
+pub fn init(data_root: &Path, lang: &str) {
+    let _ = CURRENT.set(Translator::load(data_root, lang));
+}
+
+/// The active translator, or an empty one before [`init`] ran.
+pub fn current() -> &'static Translator {
+    CURRENT.get_or_init(Translator::default)
+}
+
+/// Translate a key, falling back to the key itself.
+///
+/// The lookup is case-insensitive so `tr("Launch")` also finds "launch".
+pub fn tr(key: &str) -> String {
+    let t = current();
+    if let Some(value) = t.catalog.get(key) {
+        return value.clone();
+    }
+    let lower = key.to_lowercase();
+    for (k, v) in &t.catalog {
+        if k.to_lowercase() == lower {
+            return v.clone();
+        }
+    }
+    key.to_string()
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Translator {

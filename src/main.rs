@@ -73,6 +73,10 @@ struct MainWindow {
     /// clicking first.
     auto_focused: bool,
     plugin_count: usize,
+    /// Search box that filters the instance list by name.
+    search: Entity<crate::widgets::text_input::TextInput>,
+    /// The current search text, refreshed from the search box on every frame.
+    search_query: String,
 }
 
 impl MainWindow {
@@ -101,6 +105,12 @@ impl MainWindow {
             scroll: UniformListScrollHandle::default(),
             auto_focused: false,
             plugin_count,
+            search: cx.new(|cx| {
+                let mut t = crate::widgets::text_input::TextInput::new("Search instances", cx);
+                t.set_theme(theme, cx);
+                t
+            }),
+            search_query: String::new(),
         };
         // Icons decode in the background so start-up stays instant.
         let dirs: Vec<PathBuf> = window.instances.iter().map(|r| r.dir.clone()).collect();
@@ -142,9 +152,16 @@ impl MainWindow {
     }
 
     fn visible_rows(&self) -> Vec<InstanceRow> {
+        let query = self.search_query.as_str();
         self.instances
             .iter()
             .filter(|r| self.filter.is_none() || r.group == self.filter)
+            .filter(|r| {
+                query.is_empty()
+                    || r.name.to_lowercase().contains(&query)
+                    || r.version.to_lowercase().contains(&query)
+                    || r.loader.to_lowercase().contains(&query)
+            })
             .cloned()
             .collect()
     }
@@ -287,6 +304,8 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Keep the search text in sync with the search box.
+        self.search_query = self.search.read(cx).text().trim().to_lowercase();
         // Grab keyboard focus on the first frame so arrow-key navigation works
         // without requiring a click first.
         if !self.auto_focused {
@@ -425,6 +444,11 @@ impl Render for MainWindow {
                     )
                     .child(
                         div()
+                            .w(px(220.))
+                            .child(self.search.clone()),
+                    )
+                    .child(
+                        div()
                             .id("new-instance")
                             .ml_auto()
                             .px_3()
@@ -467,6 +491,21 @@ impl Render for MainWindow {
                             .child("News")
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 ui::open_news(this.theme, cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("accounts")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Accounts")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                ui::open_accounts(this.data_root.clone(), this.theme, cx);
                             })),
                     )
                     .child(
