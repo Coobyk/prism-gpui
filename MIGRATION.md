@@ -195,9 +195,9 @@ The `prism-gpui` binary implements the following today (99 unit tests green;
   instance names and component metadata.
 
 ### UI (GPUI)
-- Main window: virtualised instance list, group sidebar/filter, keyboard
-  navigation (↑/↓ select, Enter launch, O open, B browse, N new, S settings),
-  background icon decoding, drag-and-drop pack import.
+- Main window: virtualised instance list, group sidebar/filter, search box,
+  keyboard navigation (↑/↓ select, Enter launch, O open, B browse, N new,
+  S settings), background icon decoding, drag-and-drop pack import.
 - Instance window: tabs (Mods, Resource Packs, Shaders, Worlds, Screenshots,
   Logs, Crash Reports), launch, browse content, open folder, export, duplicate,
   delete (two-step), per-tab file actions (enable/disable mods, open
@@ -213,6 +213,8 @@ The `prism-gpui` binary implements the following today (99 unit tests green;
 - `theme.rs` — Catppuccin-based light/dark palettes; `widgets/text_input.rs` —
   reusable GPUI text field that follows the launcher theme and can mask
   secrets.
+- `i18n.rs` — translation catalog loaded from `<data>/translations/<lang>.json`
+  (or next to the executable); the main and instance windows go through it.
 
 ### CLI (headless)
 `list java java-download search search-type check-mods install install-pack
@@ -236,7 +238,6 @@ absent).
 - Forge/NeoForge/Quilt in-process installers (WiX-style) — the meta index +
   ForgeWrapper path is implemented and used instead, matching Prism.
 - In-app pixel-level skin painting (upload/activate/reset are done).
-- Translations wired into every string (the catalog exists).
 - CurseForge downloads need `CF_API_KEY`; the other platforms are wired into
   the CLI and the content browser.
 - Auto-update application (check + `--apply` only today).
