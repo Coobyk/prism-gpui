@@ -38,8 +38,7 @@ use crate::theme::Theme;
 use dirs::data_dir;
 use gpui::{
     AnyElement, App, Application, Bounds, Context, Entity, ExternalPaths, FocusHandle,
-    KeyDownEvent, SharedString, UniformListScrollHandle, Window, WindowBounds, WindowOptions, div,
-    prelude::*, px, rgb, size, uniform_list,
+    KeyDownEvent, SharedString, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -76,13 +75,11 @@ struct MainWindow {
 impl MainWindow {
     #[allow(clippy::too_many_arguments)]
     fn new(
-        title: SharedString,
         instances: Vec<InstanceRow>,
         java_path: Option<PathBuf>,
-        java_count: usize,
         data_root: PathBuf,
         theme: Theme,
-        plugin_count: usize,
+        _plugin_count: usize,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut window = Self {
@@ -497,19 +494,7 @@ impl Render for MainWindow {
         // Prism shows the instances as a grid of tiles, grouped into
         // sections; the ungrouped instances come first.
         let rows = self.visible_rows();
-        let mut groups: Vec<(String, Vec<InstanceRow>)> = Vec::new();
-        for row in rows.clone() {
-            let key = row.group.clone().unwrap_or_default();
-            match groups.iter_mut().find(|(name, _)| *name == key) {
-                Some((_, list)) => list.push(row),
-                None => groups.push((key, vec![row])),
-            }
-        }
-        groups.sort_by(|a, b| match (a.0.is_empty(), b.0.is_empty()) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
-        });
+        let groups = group_instances(&rows);
 
         let selected_name = rows.get(self.selected).map(|r| r.name.clone());
         let entity = cx.entity();
@@ -539,13 +524,14 @@ impl Render for MainWindow {
                 div()
                     .flex()
                     .flex_col()
-                    .w(px(crate::theme::metrics::TILE_WIDTH))
+                    .w_full()
                     .child(group_header(&title, theme))
                     .child(
                         div()
                             .flex()
                             .flex_wrap()
-                            .w(px(crate::theme::metrics::TILE_WIDTH))
+                            .w_full()
+                            .gap(px(crate::theme::metrics::GRID_SPACING))
                             .children(tiles),
                     )
                     .into_any_element(),
@@ -660,7 +646,10 @@ impl Render for MainWindow {
                     .bg(rgb(theme.surface))
                     .border_t_1()
                     .border_color(rgb(theme.border))
-                    .child(self.status.clone()),
+                    .child(self.status.clone())
+                    // Prism has no search field in the main window; it sits in
+                    // the status bar so the tool bar stays as Prism has it.
+                    .child(div().w(px(220.)).ml_auto().child(self.search.clone())),
             )
     }
 }
@@ -794,7 +783,7 @@ impl MainWindow {
                     .hover(|style| style.bg(rgb(theme.alternate)))
                     .child(crate::i18n::tr("Help"))
                     .on_click(cx.listener(move |_, _, _, _cx| {
-                        crate::desktop::open_url("https://prismlauncher.org/wiki/");
+                        let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
                     })),
             )
             .child(
@@ -837,8 +826,6 @@ impl MainWindow {
                         ui::open_accounts(this.data_root.clone(), this.theme, cx);
                     })),
             )
-            // The search field sits at the end of the tool bar.
-            .child(div().w(px(220.)).ml_auto().child(self.search.clone()))
             .into_any_element()
     }
 
@@ -1024,6 +1011,25 @@ impl MainWindow {
     }
 }
 
+/// Group the instances the way Prism's instance view does: the ungrouped
+/// instances come first, the other groups follow in alphabetical order.
+fn group_instances(rows: &[InstanceRow]) -> Vec<(String, Vec<InstanceRow>)> {
+    let mut groups: Vec<(String, Vec<InstanceRow>)> = Vec::new();
+    for row in rows {
+        let key = row.group.clone().unwrap_or_default();
+        match groups.iter_mut().find(|(name, _)| *name == key) {
+            Some((_, list)) => list.push(row.clone()),
+            None => groups.push((key, vec![row.clone()])),
+        }
+    }
+    groups.sort_by(|a, b| match (a.0.is_empty(), b.0.is_empty()) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
+    });
+    groups
+}
+
 /// A separator between the groups of the tool bar.
 fn tool_bar_separator(theme: Theme) -> AnyElement {
     div()
@@ -1061,8 +1067,6 @@ fn instance_tile(
     let dir = row.dir.clone();
     let open_entity = entity.clone();
     let launch_row = row.clone();
-    let launch_entity = entity;
-    let version = row.version.clone();
 
     let icon: AnyElement = match row.icon.clone() {
         Some(image) => gpui::img(image)
@@ -1106,17 +1110,6 @@ fn instance_tile(
                 })
                 .child(name.clone()),
         )
-        .child(
-            div()
-                .text_xs()
-                .text_center()
-                .text_color(if selected {
-                    rgb(theme.on_accent)
-                } else {
-                    rgb(theme.subtext)
-                })
-                .child(version),
-        )
         .on_mouse_down(
             gpui::MouseButton::Left,
             move |event: &gpui::MouseDownEvent, _window: &mut Window, cx: &mut gpui::App| {
@@ -1156,84 +1149,6 @@ fn dir_name(dir: &std::path::Path) -> String {
 
 /// button launches it; both go through the view entity so the list can stay a
 /// pure function of its data.
-fn instance_row(
-    row: InstanceRow,
-    idx: usize,
-    selected: bool,
-    theme: Theme,
-    data_root: PathBuf,
-    entity: Entity<MainWindow>,
-) -> AnyElement {
-    let open_name = row.name.clone();
-    let open_dir = row.dir.clone();
-    let open_entity = entity.clone();
-    let launch_row = row.clone();
-    let launch_entity = entity;
-    div()
-        .id(("row", idx))
-        .flex()
-        .items_center()
-        .justify_between()
-        .px_3()
-        .py_2()
-        .border_b_1()
-        .border_color(rgb(theme.border))
-        .bg(if selected { rgb(theme.surface) } else { rgb(theme.background) })
-        .child(
-            div()
-                .id(("open", idx))
-                .flex()
-                .items_center()
-                .gap_3()
-                .cursor_pointer()
-                .on_click(move |_, _, cx| {
-                    let name = open_name.clone();
-                    let dir = open_dir.clone();
-                    let root = data_root.clone();
-                    open_entity.update(cx, |_this, cx| {
-                        ui::open_instance(&name, &dir, &root, theme, cx);
-                    });
-                })
-                .child(match row.icon.clone() {
-                    Some(icon) => div()
-                        .w(px(32.))
-                        .h(px(32.))
-                        .flex_shrink_0()
-                        .child(gpui::img(icon).w(px(32.)).h(px(32.)))
-                        .into_any_element(),
-                    None => div().w(px(0.)).into_any_element(),
-                })
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(div().text_base().child(row.name.clone()))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(theme.subtext))
-                                .child(format!("{} · {}", row.version, row.loader)),
-                        ),
-                ),
-        )
-        .child(
-            div()
-                .id(("launch", idx))
-                .px_3()
-                .py_1()
-                .rounded_md()
-                .bg(rgb(theme.accent))
-                .text_color(rgb(theme.on_accent))
-                .cursor_pointer()
-                .child(crate::i18n::tr("Launch"))
-                .on_click(move |_, _, cx| {
-                    let row = launch_row.clone();
-                    launch_entity.update(cx, |this, cx| this.launch(row, cx));
-                }),
-        )
-        .into_any_element()
-}
 
 fn data_root() -> PathBuf {
     if let Ok(p) = std::env::var("PRISM_DATA_DIR") {
@@ -1345,7 +1260,7 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("Prism Launcher (Rust/GPUI)".into()),
+                    title: Some("Prism Launcher".into()),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -1354,10 +1269,8 @@ fn main() {
                 let root = root.clone();
                 cx.new(move |cx| {
                     MainWindow::new(
-                        "Prism Launcher".into(),
                         rows,
                         java_path.clone(),
-                        java_count,
                         (*root).clone(),
                         theme,
                         plugin_count,
@@ -1369,4 +1282,57 @@ fn main() {
         .unwrap();
         cx.activate(true);
     });
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    fn row(name: &str, group: Option<&str>) -> InstanceRow {
+        InstanceRow {
+            name: name.to_string(),
+            dir: PathBuf::from(name),
+            version: "1.21.1".into(),
+            loader: "vanilla".into(),
+            group: group.map(|g| g.to_string()),
+            icon: None,
+        }
+    }
+
+    #[test]
+    fn ungrouped_instances_come_first() {
+        let rows = vec![
+            row("b", Some("Beta")),
+            row("a", None),
+            row("c", Some("alpha")),
+        ];
+        let groups = group_instances(&rows);
+        let names: Vec<&str> = groups.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, vec!["", "alpha", "Beta"]);
+        assert_eq!(groups[0].1.len(), 1);
+        assert_eq!(groups[0].1[0].name, "a");
+    }
+
+    #[test]
+    fn instances_of_a_group_stay_together() {
+        let rows = vec![
+            row("a1", Some("Group")),
+            row("b", None),
+            row("a2", Some("Group")),
+        ];
+        let groups = group_instances(&rows);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].0, "");
+        assert_eq!(groups[1].0, "Group");
+        assert_eq!(groups[1].1.len(), 2);
+    }
+
+    #[test]
+    fn the_menu_bar_has_the_menus_prism_has() {
+        let titles: Vec<&str> = crate::menu::menus()
+            .into_iter()
+            .map(|m| m.title)
+            .collect();
+        assert_eq!(titles, vec!["File", "Edit", "View", "Folders", "Accounts", "Help"]);
+    }
 }

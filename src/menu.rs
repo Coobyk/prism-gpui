@@ -7,7 +7,7 @@
 use crate::theme::Theme;
 use gpui::{
     App, Bounds, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window,
-    WindowBounds, WindowOptions, WindowKind, div, prelude::*, px, rgb, size,
+    WindowBounds, WindowOptions, WindowKind, div, prelude::*, px, rgb,
 };
 
 /// An action a menu entry performs.
@@ -234,7 +234,7 @@ impl MenuView {
 }
 
 impl Render for MenuView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         for (i, entry) in self.items.iter().enumerate() {
@@ -321,7 +321,7 @@ pub fn open_menu(
             focus: false,
             ..Default::default()
         },
-        move |_, cx| cx.new(|cx| view),
+        move |_, cx| cx.new(|_cx| view),
     )
     .ok();
 }

@@ -329,7 +329,7 @@ impl InstanceView {
     }
 
     /// The Servers page: the servers of the instance's `servers.dat`.
-    fn render_servers(&mut self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn render_servers(&mut self, theme: Theme, _cx: &mut Context<Self>) -> AnyElement {
         let servers = crate::servers::list_servers(&self.dir);
         let rows: Vec<AnyElement> = servers
             .iter()
@@ -369,7 +369,7 @@ impl InstanceView {
     }
 
     /// The Version tab: the components the instance is made of.
-    fn render_version(&mut self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn render_version(&mut self, theme: Theme, _cx: &mut Context<Self>) -> AnyElement {
         let rows: Vec<AnyElement> = self
             .components
             .iter()
@@ -521,7 +521,6 @@ impl Render for InstanceView {
             self.auto_focused = true;
         }
         let theme = self.theme;
-        let this_pending_delete = self.pending_delete;
 
         // The page list on the left, like Prism's `PageView`.
         let pages: Vec<AnyElement> = Tab::ALL
@@ -624,7 +623,6 @@ impl Render for InstanceView {
             }
         };
 
-        let this_pending = self.pending_delete;
 
         div()
             .flex()
@@ -806,89 +804,6 @@ impl Render for InstanceView {
                             .child(crate::i18n::tr("Close"))
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.quit();
-                            })),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_4()
-                    .pb_2()
-                    .child(
-                        div()
-                            .id("inst-export")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Export…"))
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                this.export(cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("inst-duplicate")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Duplicate"))
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                this.duplicate(cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("inst-delete")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(if this_pending_delete {
-                                rgb(theme.accent)
-                            } else {
-                                rgb(theme.surface)
-                            })
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(if this_pending_delete {
-                                crate::i18n::tr("Really delete?")
-                            } else {
-                                crate::i18n::tr("Delete")
-                            })
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                this.delete(cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("inst-settings")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Settings"))
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                if let Some(inst) = crate::instance::Instance::load(&this.dir) {
-                                    crate::ui::open_instance_settings(
-                                        this.dir.clone(),
-                                        inst,
-                                        theme,
-                                        cx,
-                                    );
-                                }
                             })),
                     ),
             )
@@ -2926,7 +2841,7 @@ pub struct AccountsView {
 }
 
 impl AccountsView {
-    pub fn new(data_root: PathBuf, theme: Theme, cx: &mut Context<Self>) -> Self {
+    pub fn new(data_root: PathBuf, theme: Theme, _cx: &mut Context<Self>) -> Self {
         let store = crate::accounts::AccountStore::load(&data_root);
         Self {
             data_root,
