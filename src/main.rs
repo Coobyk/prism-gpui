@@ -289,42 +289,15 @@ impl MainWindow {
         let Some(row) = self.selected_row() else {
             return;
         };
-        let mut groups = crate::groups::GroupStore::load(&self.data_root);
+        let groups = crate::groups::GroupStore::load(&self.data_root);
         let current = groups.group_of(&row.name).map(|s| s.to_string());
-        let mut names: Vec<String> = groups.groups.keys().cloned().collect();
-        names.sort();
-        names.insert(0, "(none)".to_string());
-        let chosen = names.iter().position(|n| {
-            let n = if n == "(none)" { "" } else { n.as_str() };
-            Some(n) == current.as_deref()
-        });
-        let Some(index) = chosen else {
-            self.status = "Could not read the instance groups".into();
-            cx.notify();
-            return;
-        };
-        // Cycle through the groups; the group list is small, so a simple
-        // cycle keeps the interaction keyboard friendly.
-        let next = (index + 1) % names.len();
-        let name = if names[next] == "(none)" {
-            None
-        } else {
-            Some(names[next].clone())
-        };
-        groups.set_group(&row.name, name.as_deref());
-        match groups.save(&self.data_root) {
-            Ok(()) => {
-                self.reload();
-                self.status = format!(
-                    "{} moved to {}",
-                    row.name,
-                    name.unwrap_or_else(|| "no group".into())
-                )
-                .into();
-            }
-            Err(e) => self.status = format!("Could not save the groups: {e}").into(),
-        }
-        cx.notify();
+        ui::open_groups(
+            self.data_root.clone(),
+            row.name.clone(),
+            current,
+            self.theme,
+            cx,
+        );
     }
 
     /// Open the folder of the selected instance.
