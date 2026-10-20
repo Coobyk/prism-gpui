@@ -521,8 +521,16 @@ pub struct NewInstanceView {
 
 impl NewInstanceView {
     pub fn new(data_root: PathBuf, theme: Theme, cx: &mut Context<Self>) -> Self {
-        let name_input = cx.new(|cx| TextInput::new("Instance name", cx));
-        let version_input = cx.new(|cx| TextInput::new("Minecraft version (e.g. 1.21.1)", cx));
+        let name_input = cx.new(|cx| {
+            let mut t = TextInput::new("Instance name", cx);
+            t.set_theme(theme, cx);
+            t
+        });
+        let version_input = cx.new(|cx| {
+            let mut t = TextInput::new("Minecraft version (e.g. 1.21.1)", cx);
+            t.set_theme(theme, cx);
+            t
+        });
         Self {
             name_input,
             version_input,
@@ -606,10 +614,12 @@ use crate::settings::{GlobalSettings, ValueKind, SETTINGS, pages};
 pub struct SettingsView {
     settings: GlobalSettings,
     page: usize,
-    /// Text inputs for every non-boolean setting, keyed by registry index.
+    /// Text inputs for every text/path/secret setting.
     inputs: Vec<(&'static crate::settings::SettingDef, Entity<TextInput>)>,
     status: SharedString,
     theme: Theme,
+    focus: FocusHandle,
+    scroll: UniformListScrollHandle,
 }
 
 impl SettingsView {
@@ -620,9 +630,12 @@ impl SettingsView {
             .map(|d| {
                 let initial = settings.get(d.key).unwrap_or(d.default).to_string();
                 let label = d.label;
+                let secret = d.kind == ValueKind::Secret;
                 let input = cx.new(|cx| {
                     let mut t = TextInput::new(label, cx);
                     t.set_text(initial, cx);
+                    t.set_theme(theme, cx);
+                    t.set_masked(secret, cx);
                     t
                 });
                 (d, input)
@@ -634,7 +647,54 @@ impl SettingsView {
             inputs,
             status: "Changes are saved when you press Save".into(),
             theme,
+            focus: cx.focus_handle(),
+            scroll: UniformListScrollHandle::default(),
         }
+    }
+
+    /// Cycle an enum setting through its allowed values.
+    fn cycle_enum(&mut self, key: &'static str, options: &'static [&'static str], cx: &mut Context<Self>) {
+        if options.is_empty() {
+            return;
+        }
+        let current = self.settings.get_or(key, options[0]).to_string();
+        let idx = options.iter().position(|o| *o == current).unwrap_or(0);
+        let next = options[(idx + 1) % options.len()];
+        self.settings.set(key, next);
+        self.sync_input(key, next, cx);
+        cx.notify();
+    }
+
+    /// Push a value back into the matching text input.
+    fn sync_input(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
+        if let Some((_, input)) = self.inputs.iter().find(|(d, _)| d.key == key) {
+            let value = value.to_string();
+            input.update(cx, |t, cx| t.set_text(value, cx));
+        }
+    }
+
+    /// Open a platform file/directory picker for a path setting.
+    fn browse_path(&mut self, key: &'static str, directories: bool, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: !directories,
+            directories,
+            multiple: false,
+            prompt: Some("Select a path".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                if let Some(path) = paths.first() {
+                    let text = path.display().to_string();
+                    this.update(cx, |this, cx| {
+                        this.settings.set(key, &text);
+                        this.sync_input(key, &text, cx);
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
     }
 
     fn save(&mut self, cx: &mut Context<Self>) {
@@ -693,57 +753,35 @@ impl Render for SettingsView {
             })
             .collect();
 
-        let mut rows: Vec<AnyElement> = Vec::new();
-        for (idx, def) in SETTINGS.iter().enumerate().filter(|(_, d)| d.page == page_name) {
-            let label = div()
-                .w(px(240.))
-                .flex_shrink_0()
-                .text_sm()
-                .child(def.label.to_string());
-            let control = if def.kind == ValueKind::Bool {
-                let on = self.settings.get_bool(def.key);
-                let key = def.key;
-                div()
-                    .id(("bool", idx))
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .bg(if on { rgb(theme.accent) } else { rgb(theme.surface) })
-                    .text_color(if on { rgb(theme.on_accent) } else { rgb(theme.text) })
-                    .border_1()
-                    .border_color(rgb(theme.border))
-                    .child(if on { "On" } else { "Off" })
-                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                        this.toggle_bool(key, cx);
-                    }))
-                    .into_any_element()
-            } else if let Some((_, input)) = self.inputs.iter().find(|(d, _)| d.key == def.key) {
-                div().w(px(420.)).child(input.clone()).into_any_element()
-            } else {
-                div().into_any_element()
-            };
-            let mut row = div()
-                .id(("row", idx))
-                .flex()
-                .items_center()
-                .gap_3()
-                .px_3()
-                .py_2()
-                .border_b_1()
-                .border_color(rgb(theme.border))
-                .child(label)
-                .child(control);
-            if let Some(v) = self.settings.get(def.key) {
-                row = row.child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(theme.subtext))
-                        .child(format!("({v})")),
-                );
-            }
-            rows.push(row.into_any_element());
-        }
+        // One row per setting; virtualised so long pages (and 30+ rows) scroll.
+        let rows: Vec<(
+            &'static crate::settings::SettingDef,
+            Option<Entity<TextInput>>,
+            String,
+        )> = SETTINGS
+            .iter()
+            .filter(|d| d.page == page_name)
+            .map(|d| {
+                let input = self
+                    .inputs
+                    .iter()
+                    .find(|(x, _)| x.key == d.key)
+                    .map(|(_, i)| i.clone());
+                let value = self.settings.get(d.key).unwrap_or(d.default).to_string();
+                (d, input, value)
+            })
+            .collect();
+        let entity = cx.entity();
+        let list = uniform_list("settings-rows", rows.len(), move |range, _window, _cx| {
+            range
+                .filter_map(|i| {
+                    let (def, input, value) = rows.get(i)?.clone();
+                    Some(settings_row(def, input, value, theme, entity.clone()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .track_scroll(self.scroll.clone())
+        .flex_1();
 
         div()
             .flex()
@@ -751,6 +789,21 @@ impl Render for SettingsView {
             .size_full()
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                let pages = crate::settings::pages();
+                match ev.keystroke.key.as_str() {
+                    "left" => {
+                        this.page = (this.page + pages.len() - 1) % pages.len();
+                        cx.notify();
+                    }
+                    "right" => {
+                        this.page = (this.page + 1) % pages.len();
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            }))
             .child(
                 div()
                     .flex()
@@ -792,8 +845,118 @@ impl Render for SettingsView {
                     .border_color(rgb(theme.border))
                     .children(tabs),
             )
-            .child(div().flex_1().flex().flex_col().overflow_hidden().children(rows))
+            .child(list)
     }
+}
+
+/// One settings row: label, control and current value.
+fn settings_row(
+    def: &'static crate::settings::SettingDef,
+    input: Option<Entity<TextInput>>,
+    value: String,
+    theme: Theme,
+    entity: Entity<SettingsView>,
+) -> AnyElement {
+    use crate::settings::ValueKind;
+    let label = div()
+        .w(px(240.))
+        .flex_shrink_0()
+        .text_sm()
+        .child(def.label);
+    let key = def.key;
+    let control: AnyElement = match def.kind {
+        ValueKind::Bool => {
+            let on = matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on");
+            let e = entity.clone();
+            div()
+                .id(gpui::ElementId::Name(SharedString::from(format!("bool-{key}"))))
+                .px_3()
+                .py_1()
+                .w(px(80.))
+                .rounded_md()
+                .cursor_pointer()
+                .bg(if on { rgb(theme.accent) } else { rgb(theme.surface) })
+                .text_color(if on { rgb(theme.on_accent) } else { rgb(theme.text) })
+                .border_1()
+                .border_color(rgb(theme.border))
+                .child(if on { "On" } else { "Off" })
+                .on_click(move |_, _, cx| {
+                    e.update(cx, |this, cx| this.toggle_bool(key, cx));
+                })
+                .into_any_element()
+        }
+        ValueKind::Enum(options) => {
+            let shown = if value.is_empty() {
+                "(default)".to_string()
+            } else {
+                value.clone()
+            };
+            let e = entity.clone();
+            div()
+                .id(gpui::ElementId::Name(SharedString::from(format!("enum-{key}"))))
+                .px_3()
+                .py_1()
+                .w(px(180.))
+                .rounded_md()
+                .cursor_pointer()
+                .bg(rgb(theme.surface))
+                .border_1()
+                .border_color(rgb(theme.border))
+                .child(shown)
+                .on_click(move |_, _, cx| {
+                    e.update(cx, |this, cx| this.cycle_enum(key, options, cx));
+                })
+                .into_any_element()
+        }
+        ValueKind::Path => {
+            let e = entity.clone();
+            let browse = div()
+                .id(gpui::ElementId::Name(SharedString::from(format!("browse-{key}"))))
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .cursor_pointer()
+                .bg(rgb(theme.surface))
+                .border_1()
+                .border_color(rgb(theme.border))
+                .child("Browse…")
+                .on_click(move |_, _, cx| {
+                    // A Java binary is a file; every other path setting is a
+                    // directory (instance dir, icons dir, ...).
+                    e.update(cx, |this, cx| {
+                        this.browse_path(key, key != "JavaPath", cx)
+                    });
+                });
+            let mut row = div().flex().items_center().gap_2().w(px(420.));
+            if let Some(input) = input {
+                row = row.child(div().flex_1().child(input));
+            }
+            row.child(browse).into_any_element()
+        }
+        _ => match input {
+            Some(input) => div().w(px(420.)).child(input).into_any_element(),
+            None => div().into_any_element(),
+        },
+    };
+    div()
+        .id(gpui::ElementId::Name(SharedString::from(format!("setting-{key}"))))
+        .flex()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .py_2()
+        .border_b_1()
+        .border_color(rgb(theme.border))
+        .child(label)
+        .child(control)
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(theme.subtext))
+                .child("")
+                .into_any_element(),
+        )
+        .into_any_element()
 }
 
 pub fn open_settings(
@@ -832,16 +995,19 @@ impl InstanceSettingsView {
         let min_input = cx.new(|cx| {
             let mut t = TextInput::new("Min memory (MB)", cx);
             t.set_text(instance.min_mem.to_string(), cx);
+            t.set_theme(theme, cx);
             t
         });
         let max_input = cx.new(|cx| {
             let mut t = TextInput::new("Max memory (MB)", cx);
             t.set_text(instance.max_mem.to_string(), cx);
+            t.set_theme(theme, cx);
             t
         });
         let java_input = cx.new(|cx| {
             let mut t = TextInput::new("Java path", cx);
             t.set_text(instance.java_path.clone(), cx);
+            t.set_theme(theme, cx);
             t
         });
         Self {

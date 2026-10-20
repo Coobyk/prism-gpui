@@ -53,7 +53,11 @@ impl ModBrowser {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| TextInput::new("Search for content…", cx));
+        let input = cx.new(|cx| {
+            let mut t = TextInput::new("Search for content…", cx);
+            t.set_theme(theme, cx);
+            t
+        });
         let (game_version, loader) = target_of(&instance_dir);
         let host = crate::plugin::PluginHost::discover(&data_root);
         let plugin_sources: Vec<(String, crate::plugin::ContentSource)> = host

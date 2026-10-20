@@ -367,6 +367,39 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("added Quilt {loader_version} to {name}");
             Ok(())
         }
+        Some("add-litelloader") => {
+            let name = args
+                .get(1)
+                .ok_or("usage: add-litelloader <instance> [version]")?;
+            let inst = find_instance(data_root, name)?;
+            let (game_version, _) = instance_game_loader(&inst.dir);
+            let mc = game_version.ok_or("could not determine Minecraft version")?;
+            let chain = match args.get(2) {
+                Some(v) => vec![crate::metaindex::ResolvedComponent {
+                    uid: "com.mumfrey.liteloader".to_string(),
+                    version: v.clone(),
+                }],
+                None => crate::metaindex::resolve_chain(
+                    data_root,
+                    "com.mumfrey.liteloader",
+                    &mc,
+                    true,
+                )?,
+            };
+            for c in &chain {
+                meta::set_component(&inst.dir, &c.uid, &c.version)?;
+                if let Err(e) = crate::metaindex::ensure_component(data_root, &c.uid, &c.version) {
+                    eprintln!("warning: {}: {e}", c.uid);
+                }
+            }
+            let loader = chain
+                .iter()
+                .find(|c| c.uid == "com.mumfrey.liteloader")
+                .map(|c| c.version.clone())
+                .unwrap_or_default();
+            println!("added LiteLoader {loader} (Minecraft {mc}) to {name}");
+            Ok(())
+        }
         Some("add-neoforge") => {
             let name = args
                 .get(1)
@@ -702,6 +735,7 @@ fn print_help() {
     println!("  add-fabric <instance> [loader]  install Fabric loader into an instance");
     println!("  add-forge <instance> [version]  run the Forge installer for an instance");
     println!("  add-neoforge <instance> [version]  run the NeoForge installer");
+    println!("  add-litelloader <instance> [version]  add LiteLoader (<=1.12.2)");
     println!("  search-type <type> <query>  search Modrinth by project type");
     println!("  check-mods <instance>  look up installed mods on Modrinth");
     println!("  install-pack <slug> [name]  install a Modrinth modpack");

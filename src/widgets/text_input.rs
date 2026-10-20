@@ -3,13 +3,14 @@
 
 use std::ops::Range;
 
+use crate::theme::Theme;
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler,
     Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
     LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
     ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window,
     actions, div, fill, hsla, point, prelude::*, px, relative,
-    rgb, rgba, size, white,
+    rgb, rgba, size,
 };
 use unicode_segmentation::*;
 
@@ -43,6 +44,10 @@ pub struct TextInput {
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    /// Render the contents as `*` (for passwords and API keys).
+    masked: bool,
+    /// Palette used for the field chrome.
+    theme: Theme,
 }
 
 impl TextInput {
@@ -382,7 +387,6 @@ impl EntityInputHandler for TextInput {
         let line_point = self.last_bounds?.localize(&point)?;
         let last_layout = self.last_layout.as_ref()?;
 
-        assert_eq!(last_layout.text, self.content);
         let utf8_index = last_layout.index_for_x(point.x - line_point.x)?;
         Some(self.offset_to_utf16(utf8_index))
     }
@@ -447,7 +451,14 @@ impl Element for TextElement {
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
-            (input.placeholder.clone(), hsla(0., 0., 0., 0.2))
+            (input.placeholder.clone(), hsla(0., 0., 1., 0.35))
+        } else if input.masked {
+            // `*` is one byte, so every index into the masked text is still a
+            // valid index into the real content.
+            (
+                SharedString::from("*".repeat(content.len())),
+                style.color,
+            )
         } else {
             (content, style.color)
         };
@@ -589,15 +600,19 @@ impl Render for TextInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .bg(rgb(0xeeeeee))
-            .line_height(px(30.))
-            .text_size(px(24.))
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(self.theme.border))
+            .bg(rgb(self.theme.surface))
+            .text_color(rgb(self.theme.text))
+            .line_height(px(20.))
+            .text_size(px(13.))
             .child(
                 div()
-                    .h(px(30. + 4. * 2.))
+                    .h(px(20.))
                     .w_full()
-                    .p(px(4.))
-                    .bg(white())
+                    .px(px(6.))
+                    .py(px(4.))
                     .child(TextElement { input: cx.entity() }),
             )
     }
@@ -622,7 +637,21 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            masked: false,
+            theme: Theme::dark(),
         }
+    }
+
+    /// Mask the contents (passwords, API keys).
+    pub fn set_masked(&mut self, masked: bool, cx: &mut Context<Self>) {
+        self.masked = masked;
+        cx.notify();
+    }
+
+    /// Use the launcher's palette instead of the built-in light one.
+    pub fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
+        self.theme = theme;
+        cx.notify();
     }
 
     pub fn text(&self) -> &str {
