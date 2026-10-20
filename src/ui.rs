@@ -1228,23 +1228,46 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let all_pages = pages();
+        let all_pages = crate::settings::PAGES;
         let page_name = all_pages.get(self.page).copied().unwrap_or("General");
 
-        let tabs: Vec<_> = all_pages
+        // The page list on the left, like Prism's settings dialog.
+        let page_list: Vec<AnyElement> = all_pages
             .iter()
             .enumerate()
             .map(|(i, p)| {
                 let selected = i == self.page;
                 div()
-                    .id(("page", i))
+                    .id(("settings-page", i))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .h(px(32.0))
                     .px_3()
-                    .py_1()
-                    .rounded_md()
                     .cursor_pointer()
-                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.surface) })
-                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
-                    .child(*p)
+                    .bg(if selected {
+                        rgb(theme.accent)
+                    } else {
+                        rgb(theme.background)
+                    })
+                    .text_color(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.text)
+                    })
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(
+                        div()
+                            .w(px(24.))
+                            .h(px(24.))
+                            .rounded_md()
+                            .bg(if selected {
+                                rgb(theme.on_accent)
+                            } else {
+                                rgb(theme.alternate)
+                            }),
+                    )
+                    .child(div().text_sm().child(crate::i18n::tr(p)))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.page = i;
                         cx.notify();
@@ -1253,12 +1276,12 @@ impl Render for SettingsView {
             })
             .collect();
 
-        // One row per setting; virtualised so long pages (and 30+ rows) scroll.
+        // One row per setting; virtualised so long pages scroll.
         let rows: Vec<(
             &'static crate::settings::SettingDef,
             Option<Entity<TextInput>>,
             String,
-        )> = SETTINGS
+        )> = crate::settings::SETTINGS
             .iter()
             .filter(|d| d.page == page_name)
             .map(|d| {
@@ -1291,7 +1314,7 @@ impl Render for SettingsView {
             .text_color(rgb(theme.text))
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
-                let pages = crate::settings::pages();
+                let pages = crate::settings::PAGES;
                 match ev.keystroke.key.as_str() {
                     "left" => {
                         this.page = (this.page + pages.len() - 1) % pages.len();
@@ -1304,27 +1327,70 @@ impl Render for SettingsView {
                     _ => {}
                 }
             }))
+            // The page list and the page content.
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .flex()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .id("settings-page-list")
+                            .w(px(crate::theme::metrics::PAGE_LIST_WIDTH))
+                            .flex_shrink_0()
+                            .flex()
+                            .flex_col()
+                            .py_1()
+                            .bg(rgb(theme.base))
+                            .border_r_1()
+                            .border_color(rgb(theme.border))
+                            .children(page_list),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .h(px(30.0))
+                                    .px_4()
+                                    .text_lg()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child(crate::i18n::tr(page_name)),
+                            )
+                            .child(list),
+                    ),
+            )
+            // The buttons at the bottom, like Prism's settings dialog.
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_3()
-                    .p_3()
+                    .gap_2()
+                    .h(px(40.0))
+                    .px_4()
                     .bg(rgb(theme.surface))
-                    .border_b_1()
+                    .border_t_1()
                     .border_color(rgb(theme.border))
-                    .child(div().text_lg().child(crate::i18n::tr("Global Settings")))
                     .child(
                         div()
-                            .id("save-settings")
+                            .id("settings-help")
                             .px_3()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child(crate::i18n::tr("Save"))
-                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Help"))
+                            .on_click(cx.listener(move |_, _, _, _cx| {
+                                let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
+                            })),
                     )
                     .child(
                         div()
@@ -1332,20 +1398,35 @@ impl Render for SettingsView {
                             .text_sm()
                             .text_color(rgb(theme.subtext))
                             .child(self.status.clone()),
+                    )
+                    .child(
+                        div()
+                            .id("settings-ok")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child(crate::i18n::tr("OK"))
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("settings-cancel")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Cancel"))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.quit();
+                            })),
                     ),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .p_3()
-                    .bg(rgb(theme.background))
-                    .border_b_1()
-                    .border_color(rgb(theme.border))
-                    .children(tabs),
-            )
-            .child(list)
     }
 }
 

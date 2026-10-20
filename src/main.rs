@@ -261,14 +261,15 @@ impl MainWindow {
         cx.notify();
     }
 
-    /// Open the instance settings of the selected instance.
+    /// Open the instance window of the selected instance.
+    ///
+    /// In Prism the "Edit..." button of the instance tool bar opens the
+    /// instance window; the instance settings live on its Settings page.
     fn edit_selected(&mut self, cx: &mut Context<Self>) {
         let Some(row) = self.selected_row() else {
             return;
         };
-        if let Some(inst) = crate::instance::Instance::load(&row.dir) {
-            ui::open_instance_settings(row.dir.clone(), inst, self.theme, cx);
-        }
+        ui::open_instance(&row.name, &row.dir, &self.data_root, self.theme, cx);
     }
 
     /// Move the selected instance to another group.
@@ -1090,11 +1091,6 @@ fn instance_tile(
         .gap_1()
         .py_1()
         .cursor_pointer()
-        .bg(if selected {
-            rgb(theme.accent)
-        } else {
-            rgb(theme.background)
-        })
         .hover(|style| style.bg(rgb(theme.alternate)))
         .child(icon)
         .child(
@@ -1103,6 +1099,12 @@ fn instance_tile(
                 .w(px(crate::theme::metrics::TILE_WIDTH - 6.0))
                 .text_sm()
                 .text_center()
+                .rounded_md()
+                .bg(if selected {
+                    rgb(theme.accent)
+                } else {
+                    rgb(theme.background)
+                })
                 .text_color(if selected {
                     rgb(theme.on_accent)
                 } else {
@@ -1213,6 +1215,10 @@ fn load_instance_icon(dir: &std::path::Path) -> Option<Arc<gpui::Image>> {
 fn main() {
     let root = data_root();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // "--gui [window] [name]" opens the launcher and, optionally, another
+    // window right away; anything else is a CLI command.
+    let mut gui_window: Option<String> = None;
+    let mut gui_argument: Option<String> = None;
     if let Some(first) = args.first() {
         if first != "--gui" {
             if let Err(e) = cli::run(&args, &root) {
@@ -1221,6 +1227,8 @@ fn main() {
             }
             return;
         }
+        gui_window = args.get(1).cloned();
+        gui_argument = args.get(2).cloned();
     }
     let settings = GlobalSettings::load(&root);
     crate::net::set_proxy(settings.proxy_url());
@@ -1251,6 +1259,8 @@ fn main() {
     let theme = Theme::for_name(settings.theme());
 
     let shared_root = Arc::new(root);
+    let gui_window = gui_window.clone();
+    let gui_argument = gui_argument.clone();
     Application::new().run(move |cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(800.), px(600.)), cx);
         let rows = rows.clone();
@@ -1281,6 +1291,59 @@ fn main() {
         )
         .unwrap();
         cx.activate(true);
+
+        // Open the window the user asked for on the command line.
+        let root = shared_root.clone();
+        if let Some(which) = gui_window.clone() {
+            let argument = gui_argument.clone();
+            let theme = theme;
+            match which.as_str() {
+                "instance" => {
+                    let Some(name) = argument else {
+                        eprintln!("usage: prism-gpui --gui instance <name>");
+                        return;
+                    };
+                    if let Some(row) = instance_rows(&root).into_iter().find(|r| r.name == name) {
+                        ui::open_instance(&row.name, &row.dir, &root, theme, cx);
+                    }
+                }
+                "settings" => {
+                    let settings = crate::settings::GlobalSettings::load(&root);
+                    ui::open_settings(settings, theme, cx);
+                }
+                "accounts" => {
+                    ui::open_accounts((*root).clone(), theme, cx);
+                }
+                "news" => {
+                    ui::open_news(theme, cx);
+                }
+                "new" => {
+                    ui::open_new_instance((*root).clone(), theme, cx);
+                }
+                "skin" => {
+                    let account = crate::accounts::AccountStore::load(&root)
+                        .active_account()
+                        .cloned();
+                    let (uuid, name, token) = match account {
+                        Some(a) => (Some(a.uuid), a.username, a.access_token),
+                        None => (None, "no account".to_string(), String::new()),
+                    };
+                    ui::open_skin(uuid, name, theme, (*root).clone(), token, cx);
+                }
+                "browse" => {
+                    let rows = instance_rows(&root);
+                    if let Some(row) = rows.first() {
+                        crate::modbrowser::open_mod_browser(
+                            row.dir.clone(),
+                            (*root).clone(),
+                            theme,
+                            cx,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
     });
 }
 

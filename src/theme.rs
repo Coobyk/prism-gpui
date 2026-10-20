@@ -38,7 +38,7 @@ pub mod metrics {
     /// Spacing between two instance tiles.
     pub const GRID_SPACING: f32 = 5.0;
     /// Width of the instance tool bar on the right.
-    pub const INSTANCE_TOOLBAR_WIDTH: f32 = 150.0;
+    pub const INSTANCE_TOOLBAR_WIDTH: f32 = 170.0;
     /// Width of the page list in the instance window.
     pub const PAGE_LIST_WIDTH: f32 = 190.0;
 }
