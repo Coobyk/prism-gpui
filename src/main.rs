@@ -145,6 +145,42 @@ impl MainWindow {
         .detach();
     }
 
+    /// Check GitHub for a newer Prism Launcher release.
+    ///
+    /// The result is reported in the status bar; the download and the
+    /// replacement of the running binary are left to `self-update --apply`
+    /// (a launcher cannot safely overwrite itself while it is running).
+    fn check_for_updates(&mut self, cx: &mut Context<Self>) {
+        self.status = "Checking for updates…".into();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::updater::latest_release() })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(release) => {
+                        let current = env!("CARGO_PKG_VERSION");
+                        if crate::updater::is_newer(current, &release.tag_name) {
+                            this.status = format!(
+                                "update available: {} → {}",
+                                current, release.tag_name
+                            )
+                            .into();
+                        } else {
+                            this.status = format!("up to date ({current})").into();
+                        }
+                    }
+                    Err(e) => this.status = format!("Update check failed: {e}").into(),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Reload instance rows from disk (after an import or deletion).
     fn reload(&mut self) {
         self.instances = instance_rows(&self.data_root);
@@ -506,6 +542,21 @@ impl Render for MainWindow {
                             .child(crate::i18n::tr("Accounts"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 ui::open_accounts(this.data_root.clone(), this.theme, cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("check-update")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child(crate::i18n::tr("Check for updates"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.check_for_updates(cx);
                             })),
                     )
                     .child(

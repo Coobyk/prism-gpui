@@ -1111,7 +1111,7 @@ fn now_unix() -> u64 {
 }
 
 fn cmd_self_update(data_root: &Path, apply: bool) -> Result<(), String> {
-    let release = crate::updater::latest_release()?;
+    let release = crate::updater::latest_self_release()?;
     if !crate::updater::is_newer(env!("CARGO_PKG_VERSION"), &release.tag_name) {
         println!(
             "already up to date ({} >= {})",

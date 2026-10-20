@@ -39,11 +39,24 @@ pub struct Release {
     pub assets: Vec<Asset>,
 }
 
-/// Fetch the latest Prism Launcher release.
+/// The GitHub repository the launcher checks for its own updates.
+pub const SELF_REPO: &str = "Coobyk/prism-gpui";
+
+/// Fetch the latest Prism Launcher release (the upstream C++ launcher).
 pub fn latest_release() -> Result<Release, String> {
-    let body = crate::net::get_string(
-        "https://api.github.com/repos/PrismLauncher/PrismLauncher/releases/latest",
-    )?;
+    latest_release_from("PrismLauncher/PrismLauncher")
+}
+
+/// Fetch the latest release of this launcher's own repository.
+pub fn latest_self_release() -> Result<Release, String> {
+    latest_release_from(SELF_REPO)
+}
+
+/// Fetch the latest release of a GitHub repository.
+pub fn latest_release_from(repo: &str) -> Result<Release, String> {
+    let body = crate::net::get_string(&format!(
+        "https://api.github.com/repos/{repo}/releases/latest"
+    ))?;
     serde_json::from_str(&body).map_err(|e| e.to_string())
 }
 
@@ -132,8 +145,9 @@ pub fn apply_update(downloaded: &Path, target_exe: &Path) -> Result<PathBuf, Str
         .file_name()
         .map(|s| s.to_string_lossy().to_lowercase())
         .unwrap_or_default();
-    let staged = staging_dir(target_exe.parent().unwrap_or(Path::new(".")));
-    let work = staged.join("extract");
+    // The extraction directory has to sit on the same filesystem as the
+    // target so the final rename is atomic; fall back to the temp dir.
+    let work = extraction_dir(target_exe).join("extract");
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
 
     let binary = if name.ends_with(".zip") {
@@ -170,6 +184,19 @@ pub fn apply_update(downloaded: &Path, target_exe: &Path) -> Result<PathBuf, Str
             Ok(target_exe.to_path_buf())
         }
     }
+}
+
+/// A scratch directory next to the target executable.
+///
+/// Renaming across filesystems is not atomic, so the extracted files are
+/// written beside the binary they will replace.
+pub fn extraction_dir(target_exe: &Path) -> PathBuf {
+    let parent = target_exe.parent().unwrap_or(Path::new("."));
+    let candidate = parent.join(".prism-update");
+    if std::fs::create_dir_all(&candidate).is_ok() {
+        return candidate;
+    }
+    std::env::temp_dir().join("prism-update")
 }
 
 /// Locate a Prism launcher binary inside an extracted release.
@@ -288,6 +315,44 @@ mod tests {
         std::fs::write(td.path().join("PrismLauncher/prismlauncher"), "bin").unwrap();
         let found = find_launcher_binary(td.path()).unwrap();
         assert_eq!(found.file_name().unwrap(), "prismlauncher");
+    }
+
+    #[test]
+    fn apply_update_replaces_the_binary() {
+        let td = tempfile::tempdir().unwrap();
+        let target = td.path().join("prism-gpui");
+        std::fs::write(&target, b"old binary").unwrap();
+        let staged = td.path().join("PrismLauncher-9.0.0-Linux.tar.gz");
+        {
+            let f = std::fs::File::create(&staged).unwrap();
+            let enc = flate2::write::GzEncoder::new(f, flate2::Compression::fast());
+            let mut builder = tar::Builder::new(enc);
+            let mut header = tar::Header::new_gnu();
+            let data = b"new binary";
+            header.set_size(data.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "prismlauncher", &data[..])
+                .unwrap();
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+        let written = apply_update(&staged, &target).unwrap();
+        assert_eq!(written, target);
+        assert_eq!(std::fs::read(&target).unwrap(), b"new binary");
+        // The previous binary is kept as a backup.
+        assert!(td.path().join("prism-gpui.old").exists());
+    }
+
+    #[test]
+    fn apply_update_copies_a_bare_binary() {
+        let td = tempfile::tempdir().unwrap();
+        let target = td.path().join("prism-gpui");
+        std::fs::write(&target, b"old").unwrap();
+        let downloaded = td.path().join("PrismLauncher-9.0.0-Linux.AppImage");
+        std::fs::write(&downloaded, b"new").unwrap();
+        apply_update(&downloaded, &target).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
     }
 
     #[test]
