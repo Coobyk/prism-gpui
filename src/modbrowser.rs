@@ -6,8 +6,9 @@ use crate::modplatform::{ContentKind, Platform, PlatformHit, SearchQuery, platfo
 use crate::theme::Theme;
 use crate::widgets::text_input::TextInput;
 use gpui::{
-    App, Bounds, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window,
-    WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    AnyElement, App, Bounds, Context, Entity, IntoElement, KeyDownEvent, ParentElement, Render,
+    SharedString, Styled, UniformListScrollHandle, Window, WindowBounds, WindowOptions, div,
+    prelude::*, px, rgb, size, uniform_list,
 };
 use std::path::PathBuf;
 
@@ -42,6 +43,7 @@ pub struct ModBrowser {
     instance_dir: PathBuf,
     status: SharedString,
     theme: Theme,
+    scroll: UniformListScrollHandle,
 }
 
 impl ModBrowser {
@@ -72,6 +74,7 @@ impl ModBrowser {
             instance_dir,
             status: "Choose a category, type a query, press Search".into(),
             theme,
+            scroll: UniformListScrollHandle::default(),
         }
     }
 
@@ -198,7 +201,7 @@ impl ModBrowser {
         let plugin_source = row
             .plugin_source
             .and_then(|i| self.plugin_sources.get(i).cloned());
-        if let Some((_, source)) = &plugin_source {
+        if let Some((_, _source)) = &plugin_source {
             if row.kind == ContentKind::Modpack {
                 self.status =
                     "Modpacks cannot be installed from a plugin content source".into();
@@ -414,64 +417,28 @@ impl Render for ModBrowser {
             })
             .collect::<Vec<_>>();
 
-        let rows: Vec<_> = self
-            .hits
-            .iter()
-            .cloned()
-            .enumerate()
-            .map(|(i, h)| {
-                let h2 = h.clone();
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(rgb(theme.border))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .max_w(px(520.))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(div().text_base().child(h.title.clone()))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(rgb(theme.subtext))
-                                            .child(h.platform.label()),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(theme.subtext))
-                                    .child(format!("{} · {} dl", h.description, compact(h.downloads))),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id(("install", i))
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(theme.on_accent))
-                            .cursor_pointer()
-                            .child("Install")
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                this.install(h2.clone(), cx);
-                            })),
-                    )
-                    .into_any_element()
+        // Virtualised so a 10k-result search only lays out visible rows.
+        let hits = self.hits.clone();
+        let entity = cx.entity();
+        let list: AnyElement = if hits.is_empty() {
+            div()
+                .p_4()
+                .text_color(rgb(theme.subtext))
+                .child("No results yet.")
+                .into_any_element()
+        } else {
+            uniform_list("mod-results", hits.len(), move |range, _window, _cx| {
+                range
+                    .filter_map(|i| {
+                        let h = hits.get(i)?.clone();
+                        Some(hit_row(h, i, theme, entity.clone()))
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect();
+            .track_scroll(self.scroll.clone())
+            .flex_1()
+            .into_any_element()
+        };
 
         let target = match (&self.game_version, &self.loader) {
             (Some(mc), Some(l)) => format!("{mc} · {l}"),
@@ -531,8 +498,69 @@ impl Render for ModBrowser {
                             ),
                     ),
             )
-            .child(div().flex_1().flex().flex_col().overflow_hidden().children(rows))
+            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                if ev.keystroke.key == "enter" {
+                    this.search(cx);
+                }
+            }))
+            .child(div().flex_1().flex().flex_col().overflow_hidden().child(list))
     }
+}
+
+/// One virtualised search result row.
+fn hit_row(h: HitRow, i: usize, theme: Theme, entity: Entity<ModBrowser>) -> AnyElement {
+    let h2 = h.clone();
+    div()
+        .id(("hit", i))
+        .flex()
+        .items_center()
+        .justify_between()
+        .px_3()
+        .py_2()
+        .border_b_1()
+        .border_color(rgb(theme.border))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .max_w(px(520.))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .items_center()
+                        .child(div().text_base().child(h.title.clone()))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(theme.subtext))
+                                .child(h.platform.label()),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(theme.subtext))
+                        .child(format!("{} · {} dl", h.description, compact(h.downloads))),
+                ),
+        )
+        .child(
+            div()
+                .id(("install", i))
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .bg(rgb(theme.accent))
+                .text_color(rgb(theme.on_accent))
+                .cursor_pointer()
+                .child("Install")
+                .on_click(move |_, _, cx| {
+                    let row = h2.clone();
+                    entity.update(cx, |this, cx| this.install(row, cx));
+                }),
+        )
+        .into_any_element()
 }
 
 pub fn open_mod_browser(

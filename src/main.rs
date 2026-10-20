@@ -36,8 +36,9 @@ use crate::settings::GlobalSettings;
 use crate::theme::Theme;
 use dirs::data_dir;
 use gpui::{
-    App, Application, Bounds, Context, SharedString, Window, WindowBounds, WindowOptions, div,
-    prelude::*, px, rgb, size,
+    AnyElement, App, Application, Bounds, Context, Entity, ExternalPaths, FocusHandle,
+    KeyDownEvent, SharedString, UniformListScrollHandle, Window, WindowBounds, WindowOptions, div,
+    prelude::*, px, rgb, size, uniform_list,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -56,6 +57,7 @@ struct InstanceRow {
 struct MainWindow {
     title: SharedString,
     instances: Vec<InstanceRow>,
+    #[allow(dead_code)]
     java_path: Option<PathBuf>,
     java_count: usize,
     data_root: PathBuf,
@@ -63,9 +65,198 @@ struct MainWindow {
     status: SharedString,
     /// Selected group filter; `None` = show all.
     filter: Option<String>,
+    /// Selection index within the filtered rows, for keyboard navigation.
+    selected: usize,
+    focus: FocusHandle,
+    scroll: UniformListScrollHandle,
+    /// Focus is requested once on the first frame so arrow keys work without
+    /// clicking first.
+    auto_focused: bool,
+    plugin_count: usize,
 }
 
 impl MainWindow {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        title: SharedString,
+        instances: Vec<InstanceRow>,
+        java_path: Option<PathBuf>,
+        java_count: usize,
+        data_root: PathBuf,
+        theme: Theme,
+        plugin_count: usize,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut window = Self {
+            title,
+            instances,
+            java_path,
+            java_count,
+            data_root,
+            theme,
+            status: "Ready — ↑/↓ select, Enter launch, O open, B browse content, N new".into(),
+            filter: None,
+            selected: 0,
+            focus: cx.focus_handle(),
+            scroll: UniformListScrollHandle::default(),
+            auto_focused: false,
+            plugin_count,
+        };
+        // Icons decode in the background so start-up stays instant.
+        let dirs: Vec<PathBuf> = window.instances.iter().map(|r| r.dir.clone()).collect();
+        window.load_icons(dirs, cx);
+        window
+    }
+
+    /// Load instance icons in the background, then patch them into the rows.
+    fn load_icons(&mut self, dirs: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if dirs.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let icons = cx
+                .background_executor()
+                .spawn(async move {
+                    dirs.iter()
+                        .map(|d| load_instance_icon(d))
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                for (row, icon) in this.instances.iter_mut().zip(icons) {
+                    if row.icon.is_none() {
+                        row.icon = icon;
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Reload instance rows from disk (after an import or deletion).
+    fn reload(&mut self) {
+        self.instances = instance_rows(&self.data_root);
+        self.clamp_selection();
+    }
+
+    fn visible_rows(&self) -> Vec<InstanceRow> {
+        self.instances
+            .iter()
+            .filter(|r| self.filter.is_none() || r.group == self.filter)
+            .cloned()
+            .collect()
+    }
+
+    fn clamp_selection(&mut self) {
+        let len = self.visible_rows().len();
+        if len == 0 {
+            self.selected = 0;
+        } else if self.selected >= len {
+            self.selected = len - 1;
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let len = self.visible_rows().len();
+        if len == 0 {
+            return;
+        }
+        let current = self.selected.min(len - 1) as isize;
+        let next = (current + delta).clamp(0, len as isize - 1);
+        self.selected = next as usize;
+        cx.notify();
+    }
+
+    fn launch_selected(&mut self, cx: &mut Context<Self>) {
+        if let Some(row) = self.visible_rows().get(self.selected).cloned() {
+            self.launch(row, cx);
+        }
+    }
+
+    fn open_selected(&mut self, cx: &mut Context<Self>) {
+        if let Some(row) = self.visible_rows().get(self.selected).cloned() {
+            ui::open_instance(&row.name, &row.dir, &self.data_root, self.theme, cx);
+        }
+    }
+
+    fn browse_selected(&mut self, cx: &mut Context<Self>) {
+        if let Some(row) = self.visible_rows().get(self.selected).cloned() {
+            crate::modbrowser::open_mod_browser(
+                row.dir.clone(),
+                self.data_root.clone(),
+                self.theme,
+                cx,
+            );
+        }
+    }
+
+    /// Import pack archives dropped onto the window.
+    fn import_dropped(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        let archives: Vec<PathBuf> = paths
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()),
+                    Some(ref e) if e == "zip" || e == "mrpack"
+                )
+            })
+            .cloned()
+            .collect();
+        if archives.is_empty() {
+            self.status = "Drop a .mrpack or pack .zip to import it".into();
+            cx.notify();
+            return;
+        }
+        let root = self.data_root.clone();
+        self.status = format!("Importing {} pack(s)…", archives.len()).into();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut messages = Vec::new();
+                    let mut imported = Vec::new();
+                    for archive in archives {
+                        match crate::pack::import_archive(&archive, &root, None) {
+                            Ok(result) => {
+                                messages.push(format!(
+                                    "{} → {}",
+                                    result.summary, result.name
+                                ));
+                                imported.push(result);
+                            }
+                            Err(e) => messages.push(format!(
+                                "{}: {e}",
+                                archive.file_name().unwrap_or_default().to_string_lossy()
+                            )),
+                        }
+                    }
+                    // Materialise component metadata in the background so the
+                    // imported instance can launch immediately.
+                    for result in &imported {
+                        for (uid, version) in &result.components {
+                            if uid == "net.minecraft" {
+                                let _ = crate::meta::ensure_minecraft(&root, version);
+                            } else {
+                                let _ = crate::metaindex::ensure_component(&root, uid, version);
+                            }
+                        }
+                    }
+                    messages
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.reload();
+                this.status = result.join("; ").into();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn launch(&mut self, row: InstanceRow, cx: &mut Context<Self>) {
         let java = match java::ensure_for_instance(&self.data_root, &row.dir) {
             Ok(path) => path,
@@ -97,9 +288,14 @@ impl MainWindow {
 }
 
 impl Render for MainWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Grab keyboard focus on the first frame so arrow-key navigation works
+        // without requiring a click first.
+        if !self.auto_focused {
+            self.focus.focus(window);
+            self.auto_focused = true;
+        }
         let theme = self.theme;
-        let root_for_open = self.data_root.clone();
 
         // Collect the distinct groups for the sidebar.
         let mut group_names: Vec<String> = self
@@ -129,93 +325,48 @@ impl Render for MainWindow {
                     .child(label)
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.filter = value.clone();
+                        this.selected = 0;
                         cx.notify();
                     }))
                     .into_any_element()
             })
             .collect::<Vec<_>>();
 
-        let rows: Vec<_> = self
-            .instances
-            .iter()
-            .filter(|r| filter.is_none() || r.group == filter)
-            .cloned()
-            .map(|row| {
-                let launch_row = row.clone();
-                let open_name = row.name.clone();
-                let open_dir = row.dir.clone();
-                let this_theme = theme;
-                let open_root = root_for_open.clone();
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(rgb(theme.border))
-                    .child(
-                        div()
-                            .id(("open", index_of(&self.instances, &row.name)))
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |_this, _, _, cx| {
-                                ui::open_instance(&open_name, &open_dir, &open_root, this_theme, cx);
-                            }))
-                            .child(match row.icon.clone() {
-                                Some(icon) => div()
-                                    .w(px(32.))
-                                    .h(px(32.))
-                                    .flex_shrink_0()
-                                    .child(gpui::img(icon).w(px(32.)).h(px(32.)))
-                                    .into_any_element(),
-                                None => div().w(px(0.)).into_any_element(),
-                            })
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child(div().text_base().child(row.name.clone()))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(rgb(theme.subtext))
-                                            .child(format!(
-                                                "{} · {} · {}",
-                                                row.version, row.loader, row.mem
-                                            )),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id(("launch", index_of(&self.instances, &row.name)))
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(theme.on_accent))
-                            .cursor_pointer()
-                            .child("Launch")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.launch(launch_row.clone(), cx);
-                            })),
-                    )
-                    .into_any_element()
-            })
-            .collect();
-
-        let body = if rows.is_empty() {
-            vec![div()
+        // Only visible rows are laid out, so thousands of instances stay fast.
+        let items: Vec<(usize, InstanceRow)> =
+            self.visible_rows().into_iter().enumerate().collect();
+        let selected = self.selected;
+        let row_root = self.data_root.clone();
+        let entity = cx.entity();
+        let list: AnyElement = if items.is_empty() {
+            div()
                 .p_4()
                 .text_color(rgb(theme.subtext))
-                .child("No instances found. Set PRISM_DATA_DIR to a Prism data directory.")
-                .into_any_element()]
+                .child("No instances found. Drop a .mrpack or pack .zip here to import one.")
+                .into_any_element()
         } else {
-            rows
+            uniform_list(
+                "instance-list",
+                items.len(),
+                move |range, _window, _cx| {
+                    range
+                        .filter_map(|i| {
+                            let (idx, row) = items.get(i)?.clone();
+                            Some(instance_row(
+                                row,
+                                idx,
+                                idx == selected,
+                                theme,
+                                row_root.clone(),
+                                entity.clone(),
+                            ))
+                        })
+                        .collect::<Vec<_>>()
+                },
+            )
+            .track_scroll(self.scroll.clone())
+            .flex_1()
+            .into_any_element()
         };
 
         div()
@@ -224,6 +375,27 @@ impl Render for MainWindow {
             .size_full()
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                match ev.keystroke.key.as_str() {
+                    "up" => this.move_selection(-1, cx),
+                    "down" => this.move_selection(1, cx),
+                    "enter" => this.launch_selected(cx),
+                    "o" => this.open_selected(cx),
+                    "b" => this.browse_selected(cx),
+                    "n" => {
+                        ui::open_new_instance(this.data_root.clone(), this.theme, cx);
+                    }
+                    "s" => {
+                        let settings = crate::settings::GlobalSettings::load(&this.data_root);
+                        ui::open_settings(settings, this.theme, cx);
+                    }
+                    _ => {}
+                }
+            }))
+            .on_drop(cx.listener(|this: &mut Self, paths: &ExternalPaths, _window, cx| {
+                this.import_dropped(paths.paths(), cx);
+            }))
             .child(
                 div()
                     .flex()
@@ -246,6 +418,12 @@ impl Render for MainWindow {
                             .text_sm()
                             .text_color(rgb(theme.subtext))
                             .child(format!("{} java", self.java_count)),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(format!("{} plugins", self.plugin_count)),
                     )
                     .child(
                         div()
@@ -346,14 +524,95 @@ impl Render for MainWindow {
                             .flex()
                             .flex_col()
                             .overflow_hidden()
-                            .children(body),
+                            .child(list),
                     ),
             )
     }
 }
 
-fn index_of(rows: &[InstanceRow], name: &str) -> usize {
-    rows.iter().position(|r| r.name == name).unwrap_or(0)
+/// Build one instance row. Clicking the name opens the instance window, the
+/// button launches it; both go through the view entity so the list can stay a
+/// pure function of its data.
+fn instance_row(
+    row: InstanceRow,
+    idx: usize,
+    selected: bool,
+    theme: Theme,
+    data_root: PathBuf,
+    entity: Entity<MainWindow>,
+) -> AnyElement {
+    let open_name = row.name.clone();
+    let open_dir = row.dir.clone();
+    let open_entity = entity.clone();
+    let launch_row = row.clone();
+    let launch_entity = entity;
+    div()
+        .id(("row", idx))
+        .flex()
+        .items_center()
+        .justify_between()
+        .px_3()
+        .py_2()
+        .border_b_1()
+        .border_color(rgb(theme.border))
+        .bg(if selected { rgb(theme.surface) } else { rgb(theme.background) })
+        .child(
+            div()
+                .id(("open", idx))
+                .flex()
+                .items_center()
+                .gap_3()
+                .cursor_pointer()
+                .on_click(move |_, _, cx| {
+                    let name = open_name.clone();
+                    let dir = open_dir.clone();
+                    let root = data_root.clone();
+                    open_entity.update(cx, |_this, cx| {
+                        ui::open_instance(&name, &dir, &root, theme, cx);
+                    });
+                })
+                .child(match row.icon.clone() {
+                    Some(icon) => div()
+                        .w(px(32.))
+                        .h(px(32.))
+                        .flex_shrink_0()
+                        .child(gpui::img(icon).w(px(32.)).h(px(32.)))
+                        .into_any_element(),
+                    None => div().w(px(0.)).into_any_element(),
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(div().text_base().child(row.name.clone()))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(theme.subtext))
+                                .child(format!(
+                                    "{} · {} · {}",
+                                    row.version, row.loader, row.mem
+                                )),
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .id(("launch", idx))
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .bg(rgb(theme.accent))
+                .text_color(rgb(theme.on_accent))
+                .cursor_pointer()
+                .child("Launch")
+                .on_click(move |_, _, cx| {
+                    let row = launch_row.clone();
+                    launch_entity.update(cx, |this, cx| this.launch(row, cx));
+                }),
+        )
+        .into_any_element()
 }
 
 fn data_root() -> PathBuf {
@@ -394,7 +653,8 @@ fn instance_rows(root: &PathBuf) -> Vec<InstanceRow> {
                 loader,
                 mem: format!("{}–{} MB", inst.min_mem, inst.max_mem),
                 group,
-                icon: load_instance_icon(&inst.dir),
+                // Decoded asynchronously after the window opens.
+                icon: None,
             }
         })
         .collect()
@@ -463,15 +723,17 @@ fn main() {
             },
             move |_, cx| {
                 let root = root.clone();
-                cx.new(move |_| MainWindow {
-                    title: "Prism Launcher".into(),
-                    instances: rows,
-                    java_path: java_path.clone(),
-                    java_count,
-                    data_root: (*root).clone(),
-                    theme,
-                    status: "Ready".into(),
-                    filter: None,
+                cx.new(move |cx| {
+                    MainWindow::new(
+                        "Prism Launcher".into(),
+                        rows,
+                        java_path.clone(),
+                        java_count,
+                        (*root).clone(),
+                        theme,
+                        plugin_count,
+                        cx,
+                    )
                 })
             },
         )

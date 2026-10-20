@@ -1387,41 +1387,13 @@ fn cmd_packinfo(path: &Path) -> Result<(), String> {
 }
 
 fn cmd_import(data_root: &Path, path: &Path, name: Option<&str>) -> Result<(), String> {
-    let instances_root = instance::instances_dir(data_root);
-    match crate::pack::detect_format(path) {
-        "mrpack" => {
-            let m = crate::pack::mrpack::manifest_from_pack(path)?;
-            let dir_name = name.unwrap_or(&m.name).replace(['/', '\\'], "_");
-            let inst_dir = instances_root.join(&dir_name);
-            crate::pack::mrpack::install(path, &inst_dir)?;
-            write_instance_cfg(&inst_dir)?;
-            println!("imported {} → {}", m.name, inst_dir.display());
-            Ok(())
-        }
-        "zip" => {
-            if crate::pack::curseforge::manifest_from_pack(path).is_ok() {
-                let m = crate::pack::curseforge::manifest_from_pack(path)?;
-                let dir_name = name.unwrap_or(&m.name).replace(['/', '\\'], "_");
-                let inst_dir = instances_root.join(&dir_name);
-                crate::pack::curseforge::extract_overrides(path, &inst_dir)?;
-                write_instance_cfg(&inst_dir)?;
-                println!("imported {} → {}", m.name, inst_dir.display());
-                Ok(())
-            } else {
-                let dir_name = name.unwrap_or("Imported");
-                let created = crate::pack::mmc::import(path, &instances_root, dir_name)?;
-                println!("imported → {}", created.display());
-                Ok(())
-            }
-        }
-        _ => Err("unsupported file type".into()),
+    // `import_archive` detects mrpack / CurseForge / Prism zips from their
+    // contents, materialises components and picks a non-colliding name.
+    let result = crate::pack::import_archive(path, data_root, name)?;
+    println!("{} → {}", result.summary, result.dir.display());
+    for (uid, version) in &result.components {
+        println!("  component {uid} {version}");
     }
-}
-
-fn write_instance_cfg(inst_dir: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(inst_dir).map_err(|e| e.to_string())?;
-    let cfg = "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nMinMemAlloc=512\nMaxMemAlloc=4096\n";
-    std::fs::write(inst_dir.join("instance.cfg"), cfg).map_err(|e| e.to_string())?;
     Ok(())
 }
 

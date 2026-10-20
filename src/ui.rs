@@ -2,8 +2,9 @@
 
 use crate::theme::Theme;
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, IntoElement, ParentElement, Render, SharedString,
-    Styled, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    AnyElement, App, Bounds, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
+    ParentElement, Render, SharedString, Styled, UniformListScrollHandle, Window, WindowBounds,
+    WindowOptions, div, prelude::*, px, rgb, size, uniform_list,
 };
 use std::path::{Path, PathBuf};
 
@@ -60,10 +61,21 @@ pub struct InstanceView {
     pub entries: Vec<String>,
     pub status: SharedString,
     pub theme: Theme,
+    /// Selection index for keyboard navigation.
+    selected: usize,
+    focus: FocusHandle,
+    scroll: UniformListScrollHandle,
+    auto_focused: bool,
 }
 
 impl InstanceView {
-    pub fn new(name: impl Into<SharedString>, dir: PathBuf, data_root: PathBuf, theme: Theme) -> Self {
+    pub fn new(
+        name: impl Into<SharedString>,
+        dir: PathBuf,
+        data_root: PathBuf,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut v = Self {
             name: name.into(),
             dir,
@@ -72,9 +84,61 @@ impl InstanceView {
             entries: Vec::new(),
             status: "Ready".into(),
             theme,
+            selected: 0,
+            focus: cx.focus_handle(),
+            scroll: UniformListScrollHandle::default(),
+            auto_focused: false,
         };
         v.refresh();
         v
+    }
+
+    fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let len = self.entries.len();
+        if len == 0 {
+            return;
+        }
+        let current = self.selected.min(len - 1) as isize;
+        self.selected = (current + delta).clamp(0, len as isize - 1) as usize;
+        cx.notify();
+    }
+
+    fn cycle_tab(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let all = Tab::ALL;
+        let current = all.iter().position(|t| *t == self.tab).unwrap_or(0) as isize;
+        let next = (current + delta).rem_euclid(all.len() as isize) as usize;
+        self.tab = all[next];
+        self.selected = 0;
+        self.refresh();
+        cx.notify();
+    }
+
+    /// Act on the selected entry: open files, toggle mods.
+    fn activate_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(entry) = self.entries.get(self.selected).cloned() else {
+            return;
+        };
+        match self.tab {
+            Tab::Screenshots | Tab::Logs | Tab::CrashReports => {
+                let _ = crate::desktop::open_path(&self.current_dir().join(&entry));
+            }
+            Tab::Mods if !entry.ends_with('/') => {
+                self.toggle_mod(&entry);
+                cx.notify();
+            }
+            _ => {}
+        }
+    }
+
+    fn toggle_mod(&mut self, file: &str) {
+        let dir = self.current_dir().join(file);
+        let target = if file.ends_with(".disabled") {
+            dir.with_file_name(file.trim_end_matches(".disabled").to_string())
+        } else {
+            dir.with_file_name(format!("{file}.disabled"))
+        };
+        let _ = std::fs::rename(&dir, &target);
+        self.refresh();
     }
 
     fn current_dir(&self) -> PathBuf {
@@ -101,12 +165,22 @@ impl InstanceView {
         }
         names.sort();
         self.entries = names;
+        if self.entries.is_empty() {
+            self.selected = 0;
+        } else if self.selected >= self.entries.len() {
+            self.selected = self.entries.len() - 1;
+        }
         self.status = format!("{} in {}", self.entries.len(), dir.display()).into();
     }
 }
 
 impl Render for InstanceView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Focus once so arrow keys/tab switching work without a click first.
+        if !self.auto_focused {
+            self.focus.focus(window);
+            self.auto_focused = true;
+        }
         let theme = self.theme;
         let tabs = Tab::ALL
             .iter()
@@ -132,76 +206,36 @@ impl Render for InstanceView {
             })
             .collect::<Vec<_>>();
 
-        let is_mods = self.tab == Tab::Mods;
-        let entries = if self.entries.is_empty() {
-            vec![div()
+        // Virtualised list: only the visible slice of entries is built.
+        let tab = self.tab;
+        let entries = self.entries.clone();
+        let selected = self.selected;
+        let entity = cx.entity();
+        let list: AnyElement = if entries.is_empty() {
+            div()
                 .p_3()
                 .text_color(rgb(theme.subtext))
                 .child("(empty)")
-                .into_any_element()]
+                .into_any_element()
         } else {
-            self.entries
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(i, e)| {
-                    let openable = matches!(
-                        self.tab,
-                        Tab::Screenshots | Tab::Logs | Tab::CrashReports
-                    );
-                    let label = if openable {
-                        let file = e.clone();
-                        div()
-                            .id(i)
-                            .cursor_pointer()
-                            .child(e.clone())
-                            .on_click(cx.listener(move |this: &mut Self, _, _, _cx| {
-                                let _ = crate::desktop::open_path(&this.current_dir().join(&file));
-                            }))
-                            .into_any_element()
-                    } else {
-                        div().child(e.clone()).into_any_element()
-                    };
-                    let mut row = div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .px_3()
-                        .py_1()
-                        .border_b_1()
-                        .border_color(rgb(theme.border))
-                        .child(label);
-                    if is_mods && !e.ends_with('/') {
-                        let file = e.clone();
-                        let disabled = file.ends_with(".disabled");
-                        row = row.child(
-                            div()
-                                .id(i)
-                                .px_2()
-                                .rounded_md()
-                                .bg(rgb(theme.surface))
-                                .border_1()
-                                .border_color(rgb(theme.border))
-                                .cursor_pointer()
-                                .child(if disabled { "Enable" } else { "Disable" })
-                                .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                    let dir = this.current_dir().join(&file);
-                                    let target = if file.ends_with(".disabled") {
-                                        dir.with_file_name(
-                                            file.trim_end_matches(".disabled").to_string(),
-                                        )
-                                    } else {
-                                        dir.with_file_name(format!("{file}.disabled"))
-                                    };
-                                    let _ = std::fs::rename(&dir, &target);
-                                    this.refresh();
-                                    cx.notify();
-                                })),
-                        );
-                    }
-                    row.into_any_element()
-                })
-                .collect()
+            uniform_list("instance-entries", entries.len(), move |range, _window, _cx| {
+                range
+                    .filter_map(|i| {
+                        let entry = entries.get(i)?.clone();
+                        Some(entry_row(
+                            entry,
+                            i,
+                            i == selected,
+                            tab,
+                            theme,
+                            entity.clone(),
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .track_scroll(self.scroll.clone())
+            .flex_1()
+            .into_any_element()
         };
 
         div()
@@ -210,6 +244,38 @@ impl Render for InstanceView {
             .size_full()
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(move |this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                match ev.keystroke.key.as_str() {
+                    "up" => this.move_selection(-1, cx),
+                    "down" => this.move_selection(1, cx),
+                    "left" => this.cycle_tab(-1, cx),
+                    "right" => this.cycle_tab(1, cx),
+                    "enter" => this.activate_selected(cx),
+                    "l" => {
+                        let java = crate::java::ensure_for_instance(&this.data_root, &this.dir);
+                        if let Ok(java) = java {
+                            let account = crate::accounts::AccountStore::load(&this.data_root)
+                                .active_account()
+                                .cloned();
+                            if let Some(profile) = crate::launch::build_profile_with_account(
+                                &this.dir,
+                                &this.data_root,
+                                &java,
+                                account.as_ref(),
+                            ) {
+                                crate::console::open_console(
+                                    profile,
+                                    this.name.to_string(),
+                                    theme,
+                                    cx,
+                                );
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }))
             .child(
                 div()
                     .flex()
@@ -347,8 +413,71 @@ impl Render for InstanceView {
                     .p_3()
                     .children(tabs),
             )
-            .child(div().flex_1().flex().flex_col().overflow_hidden().children(entries))
+            .child(div().flex_1().flex().flex_col().overflow_hidden().child(list))
     }
+}
+
+/// One virtualised instance-content row.
+fn entry_row(
+    entry: String,
+    i: usize,
+    selected: bool,
+    tab: Tab,
+    theme: Theme,
+    entity: Entity<InstanceView>,
+) -> AnyElement {
+    let openable = matches!(tab, Tab::Screenshots | Tab::Logs | Tab::CrashReports);
+    let label_entity = entity.clone();
+    let label_file = entry.clone();
+    let label = if openable {
+        div()
+            .id(("entry", i))
+            .cursor_pointer()
+            .child(entry.clone())
+            .on_click(move |_, _, cx| {
+                let file = label_file.clone();
+                label_entity.update(cx, |this, _cx| {
+                    let _ = crate::desktop::open_path(&this.current_dir().join(&file));
+                });
+            })
+            .into_any_element()
+    } else {
+        div().child(entry.clone()).into_any_element()
+    };
+    let mut row = div()
+        .id(("entry-row", i))
+        .flex()
+        .items_center()
+        .justify_between()
+        .px_3()
+        .py_1()
+        .border_b_1()
+        .border_color(rgb(theme.border))
+        .bg(if selected { rgb(theme.surface) } else { rgb(theme.background) })
+        .child(label);
+    if tab == Tab::Mods && !entry.ends_with('/') {
+        let file = entry.clone();
+        let disabled = file.ends_with(".disabled");
+        row = row.child(
+            div()
+                .id(("toggle", i))
+                .px_2()
+                .rounded_md()
+                .bg(rgb(theme.surface))
+                .border_1()
+                .border_color(rgb(theme.border))
+                .cursor_pointer()
+                .child(if disabled { "Enable" } else { "Disable" })
+                .on_click(move |_, _, cx| {
+                    let file = file.clone();
+                    entity.update(cx, |this, cx| {
+                        this.toggle_mod(&file);
+                        cx.notify();
+                    });
+                }),
+        );
+    }
+    row.into_any_element()
 }
 
 /// Open a new window showing an instance's contents.
@@ -367,7 +496,11 @@ pub fn open_instance(name: &str, dir: &Path, data_root: &Path, theme: Theme, cx:
                 }),
                 ..Default::default()
             },
-            |_, cx| cx.new(|_| InstanceView::new(name.clone(), dir.clone(), data_root.clone(), theme)),
+            |_, cx| {
+                cx.new(|cx| {
+                    InstanceView::new(name.clone(), dir.clone(), data_root.clone(), theme, cx)
+                })
+            },
         )
         .ok()?;
     Some(handle)
