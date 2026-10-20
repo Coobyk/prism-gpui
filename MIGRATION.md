@@ -142,7 +142,7 @@ instance directory format.
 
 ## 8. Implementation status
 
-The `prism-gpui` binary implements the following today (114 unit tests green;
+The `prism-gpui` binary implements the following today (110 unit tests green;
 `cargo test` passes on the instabox build box as well).
 
 ### Data / core
@@ -232,17 +232,6 @@ The palette is Prism's own dark and bright theme.
   middle, the description of the selected entry on the right and the target,
   the status and the Install button at the bottom.
 - Accounts window: Microsoft sign-in, offline accounts, switch and remove.
-- Group dialog: the groups are listed, the instance is moved with Use, and
-  groups can be created, renamed and deleted.
-- The instances are sorted with the `InstSortMode` setting (Name, LastLaunch,
-  Playtime) and the play time is recorded when an instance runs.
-- The tiles show the instance folder and the play time in their tooltip, the
-  groups can be folded away, and an instance without an icon gets a
-  placeholder.
-- The instance window can open the folder of a file, delete it and rename a
-  world, and it shows the metadata (name, version, author) of the selected
-  mod, read from the jar descriptor.
-- The instance icon can be changed, and a desktop shortcut can be created.
 - Skin manager: the account's Mojang skins, upload (classic/slim), activate,
   reset, and a local skin library.
 - Console window streaming live launch output, with a Copy and a Close
@@ -259,10 +248,6 @@ The palette is Prism's own dark and bright theme.
   registers.
 - `i18n.rs` — translation catalog loaded from `<data>/translations/<lang>.json`
   (or next to the executable); the main and instance windows go through it.
-
-### Command line
-`launch` takes the options Prism offers (`--server`, `--world`, `--offline`,
-`--profile`) and `import` accepts a URL as well as a file.
 
 ### CLI (headless)
 `list java java-download search search-type check-mods install install-pack
@@ -287,5 +272,4 @@ absent).
   ForgeWrapper path is implemented and used instead, matching Prism.
 - OptiFine is not part of Prism's meta index, so it would need a direct
   optifine.net client.
-- The release workflow builds the binaries, but there is no code signing and
-  no AppImage / .msi / .dmg packaging yet.
+- No installer/packaging pipeline (AppImage, .msi, .dmg) and no code signing.

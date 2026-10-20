@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to publish
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: Linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: Windows
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macOS
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libfontconfig1-dev libfreetype-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          case "${{ matrix.os }}" in
+            ubuntu-latest)
+              bin=target/${{ matrix.target }}/release/prism-gpui
+              tar -czf dist/prism-gpui-${{ matrix.name }}-x86_64.tar.gz \
+                -C "$(dirname "$bin")" "$(basename "$bin")" README.md
+              ;;
+            windows-latest)
+              bin=target/${{ matrix.target }}/release/prism-gpui.exe
+              7z a dist/prism-gpui-${{ matrix.name }}-x86_64.zip "$bin" README.md
+              ;;
+            macos-latest)
+              bin=target/${{ matrix.target }}/release/prism-gpui
+              tar -czf dist/prism-gpui-${{ matrix.name }}-aarch64.tar.gz \
+                -C "$(dirname "$bin")" "$(basename "$bin")" README.md
+              ;;
+          esac
+          ls -la dist
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
