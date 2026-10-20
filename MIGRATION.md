@@ -135,19 +135,27 @@ instance directory format.
 
 ## 8. Implementation status
 
-The `prism-gpui` binary implements the following today (all covered by unit
-tests; `cargo test` green):
+The `prism-gpui` binary implements the following today (99 unit tests green;
+`cargo test` passes on the instabox build box as well).
 
 ### Data / core
 - `instance.rs` — instance discovery, `instance.cfg` read/write, create /
   remove / rename / duplicate.
-- `settings.rs` — global `prismlauncher.cfg` read/write (`GlobalSettings`).
-- `meta.rs` — Prism component pack (`mmc-pack.json`), Mojang version JSON,
-  component index listing, library/asset download, `set_component`.
+- `settings.rs` — global `prismlauncher.cfg` read/write (`GlobalSettings`),
+  section-preserving INI mirroring Prism's key/section layout, typed accessors
+  for every setting in the registry.
+- `metaindex.rs` — Prism meta index client (`https://meta.prismlauncher.org/v1`):
+  index + version caching, dependency-aware resolution (`resolve_chain`),
+  derived Minecraft versions, metadata/library/maven-file materialisation.
+- `meta.rs` — Prism component pack (`mmc-pack.json`), Mojang version JSON and
+  version manifest, rule filtering, library/asset/client-jar download,
+  `set_component`, vanilla client jar in the shared library cache.
 - `java.rs` — Java detection + automatic Mojang runtime download.
-- `launch.rs` — launch profile builder (classpath, JVM/game args, substitutions)
-  with account credentials injected.
-- `net.rs` — sha1-verified downloads, meta cache helpers.
+- `launch.rs` — launch profile builder (classpath, JVM/game args, Mojang rule
+  filtering, placeholder substitution, per-instance natives extraction) with
+  account credentials injected; `ensure_ready()` fetches the client jar and
+  assets right before the JVM starts.
+- `net.rs` — sha1-verified downloads, shared HTTP agent, proxy handling.
 - `fs.rs` — recursive copy, zip-slip-safe joins, file listing.
 - `worlds.rs` — world (save) list / delete / rename, with real names read from
   `level.dat`.
@@ -155,16 +163,23 @@ tests; `cargo test` green):
   `level.dat` and `servers.dat`.
 - `servers.rs` — multiplayer server list parsed from `servers.dat`.
 - `groups.rs` — instance groups (`instgroups.json`) with a main-window sidebar.
-- `forge.rs` — Forge/NeoForge version resolution + installer runner.
-- `skin.rs` — player skin renders (Crafatar).
+- `forge.rs` — Forge/NeoForge version resolution + vendor installer runner
+  (legacy path; the meta index + ForgeWrapper is the default).
+- `skin.rs` — player skin renders (Crafatar) plus skin management: multipart
+  upload with classic/slim variant, activate, reset, cape selection and a
+  local skin library with PNG dimension validation.
 - `desktop.rs` — open files/folders/URLs via the OS.
 - `accounts.rs` + `auth/mod.rs` — Microsoft device-code → Xbox → XSTS →
   Minecraft chain; account store; vanilla-compatible offline UUIDs.
-- `updater.rs` — GitHub release check with semver comparison.
+- `updater.rs` — GitHub release check with semver comparison + self-update.
 - `news.rs` — Prism news feed (Atom/RSS parser).
 - `i18n.rs` — JSON translation catalog with key fallback.
+- `plugin.rs` — manifest plugins (`plugin.toml`, content sources, component
+  indexes) and native C-ABI plugins.
 
 ### Mod platforms
+- `modplatform/platform.rs` — one facade (`Platform`, `ContentKind`,
+  `SearchQuery`, `PlatformHit`, `InstallOutcome`) over every provider.
 - `modplatform/modrinth.rs` — search (typed facets), versions, version lookup by
   file hash, downloads.
 - `modplatform/curseforge.rs`, `ftb.rs`, `technic.rs`, `atlauncher.rs`,
@@ -175,32 +190,53 @@ tests; `cargo test` green):
 - `pack/curseforge.rs` — CurseForge manifest parse + override extraction +
   export.
 - `pack/mmc.rs` — Prism/MultiMC instance zip import/export.
+- `pack/mod.rs` — format detection by archive contents, unified
+  `import_archive` (mrpack / CurseForge / Prism zip) with non-colliding
+  instance names and component metadata.
 
 ### UI (GPUI)
-- Main window: instance list with icons, group sidebar/filter, launch, new
-  instance, settings, news, skin.
+- Main window: virtualised instance list, group sidebar/filter, keyboard
+  navigation (↑/↓ select, Enter launch, O open, B browse, N new, S settings),
+  background icon decoding, drag-and-drop pack import.
 - Instance window: tabs (Mods, Resource Packs, Shaders, Worlds, Screenshots,
-  Logs), launch, browse content, open folder, per-tab file actions
-  (enable/disable mods, open screenshots/logs).
-- Content browser: Modrinth search across mods / modpacks / resource packs /
-  shaders with install (modpacks become new instances).
+  Logs, Crash Reports), launch, browse content, open folder, export, duplicate,
+  delete (two-step), per-tab file actions (enable/disable mods, open
+  screenshots/logs), keyboard navigation.
+- Content browser: search across mods / modpacks / resource packs / shaders on
+  every platform plus plugin content sources, with install (modpacks become new
+  instances); Enter runs the search.
 - Console window streaming live launch output.
-- Settings, New Instance, Instance Settings, News, Screenshots, Servers, and
-  Skin windows.
+- Settings window: every setting in the registry, grouped by page, virtualised
+  and scrollable, enum cycling, native path pickers, masked secrets.
+- New Instance, Instance Settings, News, Screenshots, Servers and Skin
+  (skin manager) windows.
 - `theme.rs` — Catppuccin-based light/dark palettes; `widgets/text_input.rs` —
-  reusable GPUI text field.
+  reusable GPUI text field that follows the launcher theme and can mask
+  secrets.
 
 ### CLI (headless)
 `list java java-download search search-type check-mods install install-pack
 install-url import export packinfo create rm rename duplicate components
-versions set-component add-fabric add-forge add-neoforge launch log news
-check-update open worlds world-rm servers groups group-set settings login
-add-offline accounts logout --version`.
+versions set-component add-fabric add-quilt add-forge add-neoforge
+add-litelloader launch log news check-update open worlds world-rm servers
+groups group-set settings login add-offline accounts logout skin
+platforms search-platform install-mod install-pack-cf install-ftb
+install-technic install-atl install-packwiz install-source search-source
+plugins mc-versions profile self-update --version`.
+
+### Verified end to end
+On the instabox build box (no system Java, no display): the launcher
+downloaded a Java 21 runtime, the Minecraft 1.21.1 metadata, 57 libraries and
+3911 asset objects, built the classpath with the vanilla client jar and
+natives, and started the game under Xvfb — the client reached the resource
+reload and texture-atlas stage (only the missing narrator/OpenAL devices were
+absent).
 
 ### Still open
-- Forge/NeoForge/Quilt in-process installers (WiX-style).
-- Skin viewer / icon rendering (needs a GPUI asset source).
-- Full settings page parity, accessibility, virtualized lists.
-- CurseForge downloads need `CF_API_KEY`; FTB/Technic/ATLauncher clients are
-  scaffolded but not wired into a UI.
-- Auto-update application (check only today).
+- Forge/NeoForge/Quilt in-process installers (WiX-style) — the meta index +
+  ForgeWrapper path is implemented and used instead, matching Prism.
+- In-app pixel-level skin painting (upload/activate/reset are done).
+- Translations wired into every string (the catalog exists).
+- CurseForge downloads need `CF_API_KEY`; the other platforms are wired into
+  the CLI and the content browser.
+- Auto-update application (check + `--apply` only today).
