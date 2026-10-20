@@ -66,6 +66,8 @@ pub struct InstanceView {
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     auto_focused: bool,
+    /// Set after the first Delete click; a second click removes the instance.
+    pending_delete: bool,
 }
 
 impl InstanceView {
@@ -88,6 +90,7 @@ impl InstanceView {
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::default(),
             auto_focused: false,
+            pending_delete: false,
         };
         v.refresh();
         v
@@ -172,7 +175,83 @@ impl InstanceView {
         }
         self.status = format!("{} in {}", self.entries.len(), dir.display()).into();
     }
+
+    /// Minecraft version of this instance, from its component pack.
+    fn mc_version(&self) -> String {
+        crate::meta::read_component_pack(&self.dir)
+            .and_then(|p| {
+                p.components
+                    .into_iter()
+                    .find(|c| c.uid == "net.minecraft")
+                    .map(|c| c.version)
+            })
+            .unwrap_or_default()
+    }
+
+    /// Open the instance folder in the desktop file manager.
+    fn open_folder(&mut self) {
+        let _ = crate::desktop::open_path(&self.dir);
+    }
+
+    /// Export the instance as a `.mrpack`, asking for a destination first.
+    fn export(&mut self, cx: &mut Context<Self>) {
+        let name = self.name.to_string();
+        let version = self.mc_version();
+        let dir = self.dir.clone();
+        let rx = cx.prompt_for_new_path(
+            std::path::Path::new(""),
+            Some(&format!("{name}.mrpack")),
+        );
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(path))) = rx.await {
+                let result = crate::pack::mrpack::export(&dir, &path, &name, &version);
+                this.update(cx, |this, cx| {
+                    this.status = match result {
+                        Ok(()) => format!("Exported to {}", path.display()).into(),
+                        Err(e) => format!("Export failed: {e}").into(),
+                    };
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Copy the instance to a new directory.
+    fn duplicate(&mut self, cx: &mut Context<Self>) {
+        let name = self.name.to_string();
+        let target = format!("{name} copy");
+        match crate::instance::duplicate_instance(&self.data_root, &name, &target) {
+            Ok(dir) => self.status = format!("Duplicated to {}", dir.display()).into(),
+            Err(e) => self.status = format!("Duplicate failed: {e}").into(),
+        }
+        cx.notify();
+    }
+
+    /// Remove the instance. The first click arms the action, the second one
+    /// deletes, so a stray click cannot destroy an instance.
+    fn delete(&mut self, cx: &mut Context<Self>) {
+        let name = self.name.to_string();
+        if !self.pending_delete {
+            self.pending_delete = true;
+            self.status = "Click Delete again to remove this instance".into();
+            cx.notify();
+            return;
+        }
+        self.pending_delete = false;
+        match crate::instance::remove_instance(&self.data_root, &name) {
+            Ok(()) => {
+                self.status = "Instance removed".into();
+                self.refresh();
+            }
+            Err(e) => self.status = format!("Delete failed: {e}").into(),
+        }
+        cx.notify();
+    }
+
 }
+
 
 impl Render for InstanceView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -182,6 +261,7 @@ impl Render for InstanceView {
             self.auto_focused = true;
         }
         let theme = self.theme;
+        let this_pending_delete = self.pending_delete;
         let tabs = Tab::ALL
             .iter()
             .enumerate()
@@ -237,6 +317,8 @@ impl Render for InstanceView {
             .flex_1()
             .into_any_element()
         };
+
+        let this_pending = self.pending_delete;
 
         div()
             .flex()
@@ -361,6 +443,56 @@ impl Render for InstanceView {
                     )
                     .child(
                         div()
+                            .id("inst-export")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Export…")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                this.export(cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("inst-duplicate")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Duplicate")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                this.duplicate(cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("inst-delete")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(if this_pending { rgb(theme.accent) } else { rgb(theme.surface) })
+                            .text_color(if this_pending {
+                                rgb(theme.on_accent)
+                            } else {
+                                rgb(theme.text)
+                            })
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child(if this_pending { "Really delete?" } else { "Delete" })
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                this.delete(cx);
+                            })),
+                    )
+                    .child(
+                        div()
                             .id("open-folder")
                             .px_3()
                             .py_1()
@@ -372,6 +504,51 @@ impl Render for InstanceView {
                             .child("Open Folder")
                             .on_click(cx.listener(move |this: &mut Self, _, _, _cx| {
                                 let _ = crate::desktop::open_path(&this.dir.join("minecraft"));
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("export-instance")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Export…")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                this.export(cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("duplicate-instance")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child("Duplicate")
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                this.duplicate(cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("delete-instance")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(if this_pending_delete { rgb(0x9e3b3b) } else { rgb(theme.surface) })
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .cursor_pointer()
+                            .child(if this_pending_delete { "Really delete?" } else { "Delete" })
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                this.delete(cx);
                             })),
                     )
                     .child(
