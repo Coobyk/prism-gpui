@@ -178,6 +178,65 @@ impl InstanceView {
         }
     }
 
+    /// The entry that is selected in the list.
+    fn selected_entry(&self) -> Option<String> {
+        self.entries.get(self.selected).cloned()
+    }
+
+    /// Open the folder of the selected entry.
+    fn open_selected_entry(&mut self, cx: &mut Context<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        let path = self.current_dir().join(&entry);
+        let target = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(&self.current_dir()).to_path_buf()
+        };
+        let _ = crate::desktop::open_path(&target);
+        self.status = format!("Opened {}", target.display()).into();
+        cx.notify();
+    }
+
+    /// Delete the selected entry.
+    fn delete_selected_entry(&mut self, cx: &mut Context<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        let path = self.current_dir().join(&entry);
+        let result = if path.is_dir() {
+            std::fs::remove_dir_all(&path).map_err(|e| e.to_string())
+        } else {
+            std::fs::remove_file(&path).map_err(|e| e.to_string())
+        };
+        self.status = match result {
+            Ok(()) => format!("Removed {entry}").into(),
+            Err(e) => format!("Could not remove {entry}: {e}").into(),
+        };
+        self.refresh();
+        cx.notify();
+    }
+
+    /// Rename the selected world.
+    fn rename_selected_world(&mut self, cx: &mut Context<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        if self.tab != Tab::Worlds {
+            return;
+        }
+        // The new name is asked for in a small window, like Prism's dialog.
+        let world = entry.trim_end_matches('/').to_string();
+        crate::ui::open_rename_world(
+            self.dir.clone(),
+            world,
+            self.data_root.clone(),
+            self.theme,
+            cx,
+        );
+    }
+
     /// Enable or disable a mod, resource pack, shader or data pack.
     ///
     /// Minecraft skips the files that end in `.disabled`, which is how Prism
@@ -763,6 +822,58 @@ impl Render for InstanceView {
                     .bg(rgb(theme.surface))
                     .border_t_1()
                     .border_color(rgb(theme.border))
+                    // The actions for the selected entry.
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("entry-open-folder")
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child(crate::i18n::tr("Open folder"))
+                                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                        this.open_selected_entry(cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("entry-rename")
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child(crate::i18n::tr("Rename"))
+                                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                        this.rename_selected_world(cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("entry-delete")
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child(crate::i18n::tr("Delete"))
+                                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                        this.delete_selected_entry(cx)
+                                    })),
+                            ),
+                    )
                     .child(
                         div()
                             .id("instance-help")
@@ -3887,6 +3998,123 @@ pub fn open_groups(
                     data_root.clone(),
                     instance.clone(),
                     current.clone(),
+                    theme,
+                    cx,
+                )
+            })
+        },
+    )
+    .ok()
+}
+
+// ---- Rename world window ----
+
+/// Rename a world of an instance, like Prism's rename dialog.
+pub struct RenameWorldView {
+    name_input: Entity<TextInput>,
+    status: SharedString,
+    theme: Theme,
+    instance_dir: PathBuf,
+    data_root: PathBuf,
+    old_name: String,
+}
+
+impl RenameWorldView {
+    pub fn new(
+        instance_dir: PathBuf,
+        data_root: PathBuf,
+        old_name: String,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let name_input = cx.new(|cx| {
+            let mut t = TextInput::new("World name", cx);
+            t.set_text(old_name.clone(), cx);
+            t.set_theme(theme, cx);
+            t
+        });
+        Self {
+            name_input,
+            status: "Ready".into(),
+            theme,
+            instance_dir,
+            data_root,
+            old_name,
+        }
+    }
+
+    fn rename(&mut self, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).text().trim().to_string();
+        if name.is_empty() || name == self.old_name {
+            self.status = "The name did not change".into();
+            cx.notify();
+            return;
+        }
+        match crate::worlds::rename_world(&self.instance_dir, &self.old_name, &name) {
+            Ok(dir) => {
+                self.status = format!("Renamed to {}", dir.display()).into();
+                cx.quit();
+            }
+            Err(e) => self.status = format!("Rename failed: {e}").into(),
+        }
+        cx.notify();
+    }
+}
+
+impl Render for RenameWorldView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_4()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(div().text_lg().child(crate::i18n::tr("Rename World")))
+            .child(div().w(px(360.)).child(self.name_input.clone()))
+            .child(
+                div()
+                    .id("rename-world")
+                    .px_3()
+                    .py_1()
+                    .w(px(120.))
+                    .rounded_md()
+                    .bg(rgb(theme.accent))
+                    .text_color(rgb(theme.on_accent))
+                    .cursor_pointer()
+                    .child(crate::i18n::tr("Rename"))
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| this.rename(cx))),
+            )
+            .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+    }
+}
+
+/// Open the rename dialog for a world.
+pub fn open_rename_world(
+    instance_dir: PathBuf,
+    name: String,
+    data_root: PathBuf,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<RenameWorldView>> {
+    let bounds = Bounds::centered(None, size(px(420.), px(220.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some(format!("Rename {name} — Prism Launcher").into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| {
+            cx.new(|cx| {
+                RenameWorldView::new(
+                    instance_dir.clone(),
+                    data_root.clone(),
+                    name.clone(),
                     theme,
                     cx,
                 )
