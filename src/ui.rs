@@ -10,46 +10,53 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
+    Logs,
+    Version,
     Mods,
     ResourcePacks,
-    ShaderPacks,
     DataPacks,
     TexturePacks,
-    Worlds,
-    Screenshots,
-    Logs,
-    CrashReports,
+    ShaderPacks,
     Notes,
-    Version,
+    Worlds,
+    Servers,
+    Screenshots,
+    Settings,
+    CrashReports,
 }
 
 impl Tab {
-    const ALL: [Tab; 11] = [
+    /// The pages of the instance window, in the order Prism lists them.
+    const ALL: [Tab; 13] = [
+        Tab::Logs,
+        Tab::Version,
         Tab::Mods,
         Tab::ResourcePacks,
-        Tab::ShaderPacks,
         Tab::DataPacks,
         Tab::TexturePacks,
-        Tab::Worlds,
-        Tab::Screenshots,
-        Tab::Logs,
-        Tab::CrashReports,
+        Tab::ShaderPacks,
         Tab::Notes,
-        Tab::Version,
+        Tab::Worlds,
+        Tab::Servers,
+        Tab::Screenshots,
+        Tab::Settings,
+        Tab::CrashReports,
     ];
     fn label(&self) -> String {
         crate::i18n::tr(match self {
+            Tab::Logs => "Minecraft Log",
+            Tab::Version => "Version",
             Tab::Mods => "Mods",
             Tab::ResourcePacks => "Resource Packs",
-            Tab::ShaderPacks => "Shader Packs",
             Tab::DataPacks => "Data Packs",
-            Tab::TexturePacks => "Texture Packs",
-            Tab::Worlds => "Worlds",
-            Tab::Screenshots => "Screenshots",
-            Tab::Logs => "Logs",
-            Tab::CrashReports => "Crash Reports",
+            Tab::TexturePacks => "Texture packs",
+            Tab::ShaderPacks => "Shader Packs",
             Tab::Notes => "Notes",
-            Tab::Version => "Version",
+            Tab::Worlds => "Worlds",
+            Tab::Servers => "Servers",
+            Tab::Screenshots => "Screenshots",
+            Tab::Settings => "Settings",
+            Tab::CrashReports => "Other Logs",
         })
     }
     fn subdir(&self) -> &'static [&'static str] {
@@ -63,13 +70,16 @@ impl Tab {
             Tab::Screenshots => &["screenshots"],
             Tab::Logs => &["logs"],
             Tab::CrashReports => &["crash-reports"],
-            // The notes and the version list are not folders.
-            Tab::Notes | Tab::Version => &[],
+            // The remaining pages are not folders.
+            Tab::Notes | Tab::Version | Tab::Servers | Tab::Settings => &[],
         }
     }
-    /// Tabs that show a text editor instead of a file list.
+    /// Pages that show something else than a file list.
     fn is_special(&self) -> bool {
-        matches!(self, Tab::Notes | Tab::Version)
+        matches!(
+            self,
+            Tab::Notes | Tab::Version | Tab::Servers | Tab::Settings
+        )
     }
 }
 
@@ -318,6 +328,46 @@ impl InstanceView {
             .into_any_element()
     }
 
+    /// The Servers page: the servers of the instance's `servers.dat`.
+    fn render_servers(&mut self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
+        let servers = crate::servers::list_servers(&self.dir);
+        let rows: Vec<AnyElement> = servers
+            .iter()
+            .map(|server| {
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_base().child(server.name.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(theme.subtext))
+                                    .child(server.ip.clone()),
+                            ),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .children(rows)
+            .into_any_element()
+    }
+
     /// The Version tab: the components the instance is made of.
     fn render_version(&mut self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
         let rows: Vec<AnyElement> = self
@@ -464,7 +514,7 @@ impl InstanceView {
 
 
 impl Render for InstanceView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Focus once so arrow keys/tab switching work without a click first.
         if !self.auto_focused {
             self.focus.focus(window);
@@ -472,71 +522,106 @@ impl Render for InstanceView {
         }
         let theme = self.theme;
         let this_pending_delete = self.pending_delete;
-        let tabs = Tab::ALL
+
+        // The page list on the left, like Prism's `PageView`.
+        let pages: Vec<AnyElement> = Tab::ALL
             .iter()
             .enumerate()
             .map(|(i, t)| {
                 let selected = *t == self.tab;
                 let t2 = *t;
                 div()
-                    .id(i)
+                    .id(("page", i))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .h(px(32.0))
                     .px_3()
-                    .py_1()
-                    .rounded_md()
                     .cursor_pointer()
-                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.border) })
-                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
-                    .child(t.label())
+                    .bg(if selected {
+                        rgb(theme.accent)
+                    } else {
+                        rgb(theme.background)
+                    })
+                    .text_color(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.text)
+                    })
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    // The 24 pixel page icon Prism shows.
+                    .child(
+                        div()
+                            .w(px(24.))
+                            .h(px(24.))
+                            .rounded_md()
+                            .bg(if selected {
+                                rgb(theme.on_accent)
+                            } else {
+                                rgb(theme.alternate)
+                            }),
+                    )
+                    .child(div().text_sm().child(t.label()))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.tab = t2;
                         if t2 == Tab::Notes {
                             this.load_notes(cx);
+                        }
+                        if t2 == Tab::Settings {
+                            if let Some(inst) = crate::instance::Instance::load(&this.dir) {
+                                crate::ui::open_instance_settings(
+                                    this.dir.clone(),
+                                    inst,
+                                    theme,
+                                    cx,
+                                );
+                            }
                         }
                         this.refresh();
                         cx.notify();
                     }))
                     .into_any_element()
             })
-            .collect::<Vec<_>>();
+            .collect();
 
-        // The Notes and the Version tabs do not show a file list.
-        if self.tab == Tab::Notes {
-            return self.render_notes(theme, cx);
-        }
-        if self.tab == Tab::Version {
-            return self.render_version(theme, cx);
-        }
-
-        // Virtualised list: only the visible slice of entries is built.
-        let tab = self.tab;
-        let entries = self.entries.clone();
-        let selected = self.selected;
-        let entity = cx.entity();
-        let list: AnyElement = if entries.is_empty() {
-            div()
-                .p_3()
-                .text_color(rgb(theme.subtext))
-                .child(crate::i18n::tr("(empty)"))
-                .into_any_element()
-        } else {
-            uniform_list("instance-entries", entries.len(), move |range, _window, _cx| {
-                range
-                    .filter_map(|i| {
-                        let entry = entries.get(i)?.clone();
-                        Some(entry_row(
-                            entry,
-                            i,
-                            i == selected,
-                            tab,
-                            theme,
-                            entity.clone(),
-                        ))
+        // The content of the selected page.
+        let content: AnyElement = match self.tab {
+            Tab::Notes => self.render_notes(theme, cx),
+            Tab::Version => self.render_version(theme, cx),
+            Tab::Servers => self.render_servers(theme, cx),
+            _ => {
+                // Virtualised list: only the visible slice of entries is built.
+                let tab = self.tab;
+                let entries = self.entries.clone();
+                let selected = self.selected;
+                let entity = cx.entity();
+                if entries.is_empty() {
+                    div()
+                        .p_3()
+                        .text_color(rgb(theme.subtext))
+                        .child(crate::i18n::tr("(empty)"))
+                        .into_any_element()
+                } else {
+                    uniform_list("instance-entries", entries.len(), move |range, _window, _cx| {
+                        range
+                            .filter_map(|i| {
+                                let entry = entries.get(i)?.clone();
+                                Some(entry_row(
+                                    entry,
+                                    i,
+                                    i == selected,
+                                    tab,
+                                    theme,
+                                    entity.clone(),
+                                ))
+                            })
+                            .collect::<Vec<_>>()
                     })
-                    .collect::<Vec<_>>()
-            })
-            .track_scroll(self.scroll.clone())
-            .flex_1()
-            .into_any_element()
+                    .track_scroll(self.scroll.clone())
+                    .flex_1()
+                    .into_any_element()
+                }
+            }
         };
 
         let this_pending = self.pending_delete;
@@ -578,26 +663,82 @@ impl Render for InstanceView {
                     _ => {}
                 }
             }))
+            // ---- the page list and the page content -----------------------
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .flex()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .id("page-list")
+                            .w(px(crate::theme::metrics::PAGE_LIST_WIDTH))
+                            .flex_shrink_0()
+                            .flex()
+                            .flex_col()
+                            .py_1()
+                            .bg(rgb(theme.base))
+                            .border_r_1()
+                            .border_color(rgb(theme.border))
+                            .children(pages),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            // The bold page title Prism puts above the page.
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .h(px(30.0))
+                                    .px_4()
+                                    .text_lg()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child(self.tab.label()),
+                            )
+                            .child(content),
+                    ),
+            )
+            // ---- the buttons at the bottom --------------------------------
             .child(
                 div()
                     .flex()
                     .items_center()
+                    .gap_2()
                     .h(px(40.0))
                     .px_4()
-                    .gap_2()
                     .bg(rgb(theme.surface))
-                    .border_b_1()
+                    .border_t_1()
                     .border_color(rgb(theme.border))
-                    .child(self.name.clone())
                     .child(
                         div()
-                            .id("launch-instance")
+                            .id("instance-help")
                             .px_3()
                             .py_1()
                             .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Help"))
+                            .on_click(cx.listener(move |_, _, _, _cx| {
+                                crate::desktop::open_url("https://prismlauncher.org/wiki/");
+                            })),
+                    )
+                    .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+                    .child(
+                        div()
+                            .id("instance-launch")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
-                            .cursor_pointer()
                             .child(crate::i18n::tr("Launch"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 match crate::java::ensure_for_instance(&this.data_root, &this.dir) {
@@ -630,37 +771,51 @@ impl Render for InstanceView {
                     )
                     .child(
                         div()
-                            .id("browse-mods")
+                            .id("instance-restart")
                             .px_3()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child(crate::i18n::tr("Browse Mods"))
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                let dir = this.dir.clone();
-                                let root = this.data_root.clone();
-                                crate::modbrowser::open_mod_browser(dir, root, theme, cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("inst-settings")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
                             .bg(rgb(theme.surface))
                             .border_1()
                             .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Settings"))
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                if let Some(inst) = crate::instance::Instance::load(&this.dir) {
-                                    crate::ui::open_instance_settings(this.dir.clone(), inst, theme, cx);
-                                }
-                            })),
+                            .child(crate::i18n::tr("Restart")),
                     )
+                    .child(
+                        div()
+                            .id("instance-kill")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Kill")),
+                    )
+                    .child(
+                        div()
+                            .id("instance-close")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Close"))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.quit();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_4()
+                    .pb_2()
                     .child(
                         div()
                             .id("inst-export")
@@ -697,23 +852,26 @@ impl Render for InstanceView {
                             .px_3()
                             .py_1()
                             .rounded_md()
-                            .bg(if this_pending { rgb(theme.accent) } else { rgb(theme.surface) })
-                            .text_color(if this_pending {
-                                rgb(theme.on_accent)
+                            .bg(if this_pending_delete {
+                                rgb(theme.accent)
                             } else {
-                                rgb(theme.text)
+                                rgb(theme.surface)
                             })
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child(if this_pending { "Really delete?" } else { "Delete" })
+                            .child(if this_pending_delete {
+                                crate::i18n::tr("Really delete?")
+                            } else {
+                                crate::i18n::tr("Delete")
+                            })
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 this.delete(cx);
                             })),
                     )
                     .child(
                         div()
-                            .id("open-folder")
+                            .id("inst-settings")
                             .px_3()
                             .py_1()
                             .rounded_md()
@@ -721,97 +879,19 @@ impl Render for InstanceView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child(crate::i18n::tr("Open Folder"))
-                            .on_click(cx.listener(move |this: &mut Self, _, _, _cx| {
-                                let _ = crate::desktop::open_path(&this.dir.join("minecraft"));
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("export-instance")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Export…"))
+                            .child(crate::i18n::tr("Settings"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                this.export(cx);
+                                if let Some(inst) = crate::instance::Instance::load(&this.dir) {
+                                    crate::ui::open_instance_settings(
+                                        this.dir.clone(),
+                                        inst,
+                                        theme,
+                                        cx,
+                                    );
+                                }
                             })),
-                    )
-                    .child(
-                        div()
-                            .id("duplicate-instance")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Duplicate"))
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                this.duplicate(cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("delete-instance")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(if this_pending_delete { rgb(0x9e3b3b) } else { rgb(theme.surface) })
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(if this_pending_delete { "Really delete?" } else { "Delete" })
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                this.delete(cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("view-servers")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child("Servers")
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                crate::ui::open_servers(this.dir.clone(), theme, cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("view-screenshots")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Screenshots"))
-                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                                crate::ui::open_screenshots(this.dir.clone(), theme, cx);
-                            })),
-                    )
-                    .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
+                    ),
             )
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .p_3()
-                    .children(tabs),
-            )
-            .child(div().flex_1().flex().flex_col().overflow_hidden().child(list))
-            .into_any_element()
     }
 }
 
@@ -983,6 +1063,113 @@ impl Render for NewInstanceView {
             )
             .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
     }
+}
+
+// ---- Rename instance window ----
+
+/// The rename dialog, mirroring Prism's inline rename editor.
+pub struct RenameInstanceView {
+    name_input: Entity<TextInput>,
+    status: SharedString,
+    theme: Theme,
+    data_root: PathBuf,
+    old_name: String,
+}
+
+impl RenameInstanceView {
+    pub fn new(
+        data_root: PathBuf,
+        old_name: String,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let name_input = cx.new(|cx| {
+            let mut t = TextInput::new("Instance name", cx);
+            t.set_text(old_name.clone(), cx);
+            t.set_theme(theme, cx);
+            t
+        });
+        Self {
+            name_input,
+            status: "Ready".into(),
+            theme,
+            data_root,
+            old_name,
+        }
+    }
+
+    fn rename(&mut self, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).text().trim().to_string();
+        if name.is_empty() || name == self.old_name {
+            self.status = "The name did not change".into();
+            cx.notify();
+            return;
+        }
+        match crate::instance::rename_instance(&self.data_root, &self.old_name, &name) {
+            Ok(dir) => {
+                self.status = format!("Renamed to {}", dir.display()).into();
+                cx.quit();
+            }
+            Err(e) => self.status = format!("Rename failed: {e}").into(),
+        }
+        cx.notify();
+    }
+}
+
+impl Render for RenameInstanceView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_4()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(div().text_lg().child(crate::i18n::tr("Rename Instance")))
+            .child(div().w(px(360.)).child(self.name_input.clone()))
+            .child(
+                div()
+                    .id("rename-instance")
+                    .px_3()
+                    .py_1()
+                    .w(px(120.))
+                    .rounded_md()
+                    .bg(rgb(theme.accent))
+                    .text_color(rgb(theme.on_accent))
+                    .cursor_pointer()
+                    .child(crate::i18n::tr("Rename"))
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| this.rename(cx))),
+            )
+            .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+    }
+}
+
+/// Open the rename dialog for an instance.
+pub fn open_rename_instance(
+    data_root: PathBuf,
+    name: String,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<RenameInstanceView>> {
+    let bounds = Bounds::centered(None, size(px(420.), px(220.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some(format!("Rename {name} — Prism Launcher").into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| {
+            cx.new(|cx| {
+                RenameInstanceView::new(data_root.clone(), name.clone(), theme, cx)
+            })
+        },
+    )
+    .ok()
 }
 
 pub fn open_new_instance(

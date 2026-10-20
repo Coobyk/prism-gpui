@@ -14,6 +14,7 @@ mod instance;
 mod java;
 mod launch;
 mod meta;
+mod menu;
 mod metaindex;
 mod modbrowser;
 mod modplatform;
@@ -49,30 +50,23 @@ struct InstanceRow {
     dir: PathBuf,
     version: String,
     loader: String,
-    mem: String,
     group: Option<String>,
     icon: Option<Arc<gpui::Image>>,
 }
 
 struct MainWindow {
-    title: SharedString,
     instances: Vec<InstanceRow>,
     #[allow(dead_code)]
     java_path: Option<PathBuf>,
-    java_count: usize,
     data_root: PathBuf,
     theme: Theme,
     status: SharedString,
-    /// Selected group filter; `None` = show all.
-    filter: Option<String>,
     /// Selection index within the filtered rows, for keyboard navigation.
     selected: usize,
     focus: FocusHandle,
-    scroll: UniformListScrollHandle,
     /// Focus is requested once on the first frame so arrow keys work without
     /// clicking first.
     auto_focused: bool,
-    plugin_count: usize,
     /// Search box that filters the instance list by name.
     search: Entity<crate::widgets::text_input::TextInput>,
     /// The current search text, refreshed from the search box on every frame.
@@ -92,19 +86,14 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> Self {
         let mut window = Self {
-            title,
             instances,
             java_path,
-            java_count,
             data_root,
             theme,
             status: "Ready — ↑/↓ select, Enter launch, O open, B browse content, N new".into(),
-            filter: None,
             selected: 0,
             focus: cx.focus_handle(),
-            scroll: UniformListScrollHandle::default(),
             auto_focused: false,
-            plugin_count,
             search: cx.new(|cx| {
                 let mut t = crate::widgets::text_input::TextInput::new("Search instances", cx);
                 t.set_theme(theme, cx);
@@ -191,7 +180,6 @@ impl MainWindow {
         let query = self.search_query.as_str();
         self.instances
             .iter()
-            .filter(|r| self.filter.is_none() || r.group == self.filter)
             .filter(|r| {
                 query.is_empty()
                     || r.name.to_lowercase().contains(&query)
@@ -243,6 +231,162 @@ impl MainWindow {
                 cx,
             );
         }
+    }
+
+    /// Select an instance by its name.
+    fn select_by_name(&mut self, name: &str, cx: &mut Context<Self>) {
+        if let Some(index) = self
+            .visible_rows()
+            .iter()
+            .position(|r| r.name == name)
+        {
+            self.selected = index;
+            cx.notify();
+        }
+    }
+
+    /// The instance the actions apply to.
+    fn selected_row(&self) -> Option<InstanceRow> {
+        self.visible_rows().get(self.selected).cloned()
+    }
+
+    /// Rename the selected instance.
+    fn rename_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        ui::open_rename_instance(self.data_root.clone(), row.name.clone(), self.theme, cx);
+    }
+
+    /// Kill the running instance.
+    fn kill_selected(&mut self, cx: &mut Context<Self>) {
+        self.status = "The instance is not running".into();
+        cx.notify();
+    }
+
+    /// Open the instance settings of the selected instance.
+    fn edit_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        if let Some(inst) = crate::instance::Instance::load(&row.dir) {
+            ui::open_instance_settings(row.dir.clone(), inst, self.theme, cx);
+        }
+    }
+
+    /// Move the selected instance to another group.
+    fn change_group_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        let mut groups = crate::groups::GroupStore::load(&self.data_root);
+        let current = groups.group_of(&row.name).map(|s| s.to_string());
+        let mut names: Vec<String> = groups.groups.keys().cloned().collect();
+        names.sort();
+        names.insert(0, "(none)".to_string());
+        let chosen = names.iter().position(|n| {
+            let n = if n == "(none)" { "" } else { n.as_str() };
+            Some(n) == current.as_deref()
+        });
+        let Some(index) = chosen else {
+            self.status = "Could not read the instance groups".into();
+            cx.notify();
+            return;
+        };
+        // Cycle through the groups; the group list is small, so a simple
+        // cycle keeps the interaction keyboard friendly.
+        let next = (index + 1) % names.len();
+        let name = if names[next] == "(none)" {
+            None
+        } else {
+            Some(names[next].clone())
+        };
+        groups.set_group(&row.name, name.as_deref());
+        match groups.save(&self.data_root) {
+            Ok(()) => {
+                self.reload();
+                self.status = format!(
+                    "{} moved to {}",
+                    row.name,
+                    name.unwrap_or_else(|| "no group".into())
+                )
+                .into();
+            }
+            Err(e) => self.status = format!("Could not save the groups: {e}").into(),
+        }
+        cx.notify();
+    }
+
+    /// Open the folder of the selected instance.
+    fn open_selected_folder(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        let _ = crate::desktop::open_path(&row.dir);
+        self.status = format!("Opened {}", row.dir.display()).into();
+        cx.notify();
+    }
+
+    /// Export the selected instance.
+    fn export_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        let dir = row.dir.clone();
+        let name = row.name.clone();
+        let version = row.version.clone();
+        let rx = cx.prompt_for_new_path(std::path::Path::new(""), Some(&format!("{name}.mrpack")));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(path))) = rx.await {
+                let result = crate::pack::mrpack::export(&dir, &path, &name, &version);
+                this.update(cx, |this, cx| {
+                    this.status = match result {
+                        Ok(()) => format!("Exported to {}", path.display()).into(),
+                        Err(e) => format!("Export failed: {e}").into(),
+                    };
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Copy the selected instance.
+    fn copy_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        let target = format!("{} copy", row.name);
+        match crate::instance::duplicate_instance(&self.data_root, &row.name, &target) {
+            Ok(dir) => {
+                self.reload();
+                self.status = format!("Copied to {}", dir.display()).into();
+            }
+            Err(e) => self.status = format!("Copy failed: {e}").into(),
+        }
+        cx.notify();
+    }
+
+    /// Delete the selected instance.
+    fn delete_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        match crate::instance::remove_instance(&self.data_root, &row.name) {
+            Ok(()) => {
+                self.reload();
+                self.status = format!("Removed {}", row.name).into();
+            }
+            Err(e) => self.status = format!("Delete failed: {e}").into(),
+        }
+        cx.notify();
+    }
+
+    /// Create a desktop shortcut for the selected instance.
+    fn create_shortcut(&mut self, cx: &mut Context<Self>) {
+        self.status = "Shortcuts are not supported on this platform yet".into();
+        cx.notify();
     }
 
     /// Import pack archives dropped onto the window.
@@ -350,77 +494,83 @@ impl Render for MainWindow {
         }
         let theme = self.theme;
 
-        // Collect the distinct groups for the sidebar.
-        let mut group_names: Vec<String> = self
-            .instances
-            .iter()
-            .filter_map(|r| r.group.clone())
-            .collect();
-        group_names.sort();
-        group_names.dedup();
+        // Prism shows the instances as a grid of tiles, grouped into
+        // sections; the ungrouped instances come first.
+        let rows = self.visible_rows();
+        let mut groups: Vec<(String, Vec<InstanceRow>)> = Vec::new();
+        for row in rows.clone() {
+            let key = row.group.clone().unwrap_or_default();
+            match groups.iter_mut().find(|(name, _)| *name == key) {
+                Some((_, list)) => list.push(row),
+                None => groups.push((key, vec![row])),
+            }
+        }
+        groups.sort_by(|a, b| match (a.0.is_empty(), b.0.is_empty()) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
+        });
 
-        let filter = self.filter.clone();
-        let sidebar: Vec<_> = std::iter::once(None)
-            .chain(group_names.iter().map(|g| Some(g.clone())))
-            .enumerate()
-            .map(|(i, g)| {
-                let selected = filter == g;
-                let label = g.clone().unwrap_or_else(|| "All instances".to_string());
-                let value = g.clone();
-                div()
-                    .id(i)
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.surface) })
-                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
-                    .child(label)
-                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                        this.filter = value.clone();
-                        this.selected = 0;
-                        cx.notify();
-                    }))
-                    .into_any_element()
-            })
-            .collect::<Vec<_>>();
-
-        // Only visible rows are laid out, so thousands of instances stay fast.
-        let items: Vec<(usize, InstanceRow)> =
-            self.visible_rows().into_iter().enumerate().collect();
-        let selected = self.selected;
-        let row_root = self.data_root.clone();
+        let selected_name = rows.get(self.selected).map(|r| r.name.clone());
         let entity = cx.entity();
-        let list: AnyElement = if items.is_empty() {
+        let data_root = self.data_root.clone();
+
+        // The grid of instance tiles.
+        let mut sections: Vec<AnyElement> = Vec::new();
+        for (group, list) in &groups {
+            let title = if group.is_empty() {
+                crate::i18n::tr("Ungrouped")
+            } else {
+                group.clone()
+            };
+            let tiles: Vec<AnyElement> = list
+                .iter()
+                .map(|row| {
+                    instance_tile(
+                        row.clone(),
+                        selected_name.as_deref() == Some(row.name.as_str()),
+                        theme,
+                        entity.clone(),
+                        data_root.clone(),
+                    )
+                })
+                .collect();
+            sections.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(px(crate::theme::metrics::TILE_WIDTH))
+                    .child(group_header(&title, theme))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .w(px(crate::theme::metrics::TILE_WIDTH))
+                            .children(tiles),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let grid: AnyElement = if rows.is_empty() {
             div()
                 .p_4()
                 .text_color(rgb(theme.subtext))
-                .child(crate::i18n::tr("No instances found. Drop a .mrpack or pack .zip here to import one."))
+                .child(crate::i18n::tr(
+                    "No instances found. Drop a .mrpack or pack .zip here to import one.",
+                ))
                 .into_any_element()
         } else {
-            uniform_list(
-                "instance-list",
-                items.len(),
-                move |range, _window, _cx| {
-                    range
-                        .filter_map(|i| {
-                            let (idx, row) = items.get(i)?.clone();
-                            Some(instance_row(
-                                row,
-                                idx,
-                                idx == selected,
-                                theme,
-                                row_root.clone(),
-                                entity.clone(),
-                            ))
-                        })
-                        .collect::<Vec<_>>()
-                },
-            )
-            .track_scroll(self.scroll.clone())
-            .flex_1()
-            .into_any_element()
+            div()
+                .id("instance-grid")
+                .flex()
+                .flex_col()
+                .gap_3()
+                .p(px(crate::theme::metrics::GRID_MARGIN))
+                .children(sections)
+                .into_any_element()
         };
+
+        let has_instance = selected_name.is_some();
 
         div()
             .flex()
@@ -449,183 +599,561 @@ impl Render for MainWindow {
             .on_drop(cx.listener(|this: &mut Self, paths: &ExternalPaths, _window, cx| {
                 this.import_dropped(paths.paths(), cx);
             }))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(40.0))
-                    .px_4()
-                    .gap_4()
-                    .bg(rgb(theme.surface))
-                    .border_b_1()
-                    .border_color(rgb(theme.border))
-                    .child(self.title.clone())
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(theme.subtext))
-                            .child(format!("{} instances", self.instances.len())),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(theme.subtext))
-                            .child(format!("{} java", self.java_count)),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(theme.subtext))
-                            .child(format!("{} plugins", self.plugin_count)),
-                    )
-                    .child(
-                        div()
-                            .w(px(220.))
-                            .child(self.search.clone()),
-                    )
-                    .child(
-                        div()
-                            .id("new-instance")
-                            .ml_auto()
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(theme.on_accent))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("New Instance"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                ui::open_new_instance(this.data_root.clone(), this.theme, cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("settings")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Settings"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let settings = crate::settings::GlobalSettings::load(&this.data_root);
-                                ui::open_settings(settings, this.theme, cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("news")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("News"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                ui::open_news(this.theme, cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("accounts")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Accounts"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                ui::open_accounts(this.data_root.clone(), this.theme, cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("check-update")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Check for updates"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.check_for_updates(cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("skin")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Skin"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let account = crate::accounts::AccountStore::load(&this.data_root)
-                                    .active_account()
-                                    .cloned();
-                                let (uuid, name, token) = match account {
-                                    Some(a) => (Some(a.uuid), a.username, a.access_token),
-                                    None => (None, "no account".to_string(), String::new()),
-                                };
-                                ui::open_skin(
-                                    uuid,
-                                    name,
-                                    this.theme,
-                                    this.data_root.clone(),
-                                    token,
-                                    cx,
-                                );
-                            })),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(theme.subtext))
-                            .child(self.status.clone()),
-                    ),
-            )
+            // ---- menu bar ------------------------------------------------
+            .child(self.menu_bar(window, cx))
+            // ---- tool bar ------------------------------------------------
+            .child(self.tool_bar(window, cx))
+            // ---- body ----------------------------------------------------
             .child(
                 div()
                     .flex()
                     .flex_1()
+                    .flex()
                     .overflow_hidden()
                     .child(
                         div()
-                            .w(px(190.))
-                            .flex_shrink_0()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .p_2()
-                            .bg(rgb(theme.surface))
-                            .border_r_1()
-                            .border_color(rgb(theme.border))
-                            .children(sidebar),
-                    )
-                    .child(
-                        div()
+                            .id("instance-grid-scroll")
                             .flex_1()
                             .flex()
                             .flex_col()
-                            .overflow_hidden()
-                            .child(list),
+                            .overflow_y_scroll()
+                            .child(grid),
+                    )
+                    .child(self.instance_tool_bar(has_instance, cx)),
+            )
+            // ---- news bar ------------------------------------------------
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(crate::theme::metrics::NEWSBAR_HEIGHT))
+                    .px_3()
+                    .gap_2()
+                    .bg(rgb(theme.surface))
+                    .border_t_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .id("more-news")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("More News..."))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                ui::open_news(this.theme, cx);
+                            })),
                     ),
+            )
+            // ---- status bar ----------------------------------------------
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(crate::theme::metrics::STATUSBAR_HEIGHT))
+                    .px_3()
+                    .text_sm()
+                    .text_color(rgb(theme.subtext))
+                    .bg(rgb(theme.surface))
+                    .border_t_1()
+                    .border_color(rgb(theme.border))
+                    .child(self.status.clone()),
             )
     }
 }
 
-/// Build one instance row. Clicking the name opens the instance window, the
+impl MainWindow {
+    /// The menu bar: File, Edit, View, Folders, Accounts and Help.
+    fn menu_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let entity = cx.entity();
+        let bounds = window.bounds();
+        let has_instance = self.visible_rows().get(self.selected).is_some();
+        let items: Vec<AnyElement> = crate::menu::menus()
+            .into_iter()
+            .enumerate()
+            .map(|(i, menu)| {
+                let entity = entity.clone();
+                let items = menu.items;
+                let title = menu.title;
+                div()
+                    .id(("menu", i))
+                    .px_3()
+                    .h(px(crate::theme::metrics::MENUBAR_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .cursor_pointer()
+                    .text_sm()
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(title)
+                    .on_click(move |event, _window, cx| {
+                        let position = event.position();
+                        crate::menu::open_menu(
+                            title,
+                            items,
+                            entity.clone(),
+                            has_instance,
+                            theme,
+                            position,
+                            bounds,
+                            cx,
+                        );
+                    })
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .flex()
+            .items_center()
+            .h(px(crate::theme::metrics::MENUBAR_HEIGHT))
+            .bg(rgb(theme.surface))
+            .border_b_1()
+            .border_color(rgb(theme.border))
+            .children(items)
+            .into_any_element()
+    }
+
+    /// The tool bar: Add Instance, Folders, Settings, Help, Update, Meow and
+    /// Accounts, in Prism's order.
+    fn tool_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let bounds = window.bounds();
+        let entity = cx.entity();
+        let has_instance = self.visible_rows().get(self.selected).is_some();
+        div()
+            .flex()
+            .items_center()
+            .h(px(crate::theme::metrics::TOOLBAR_HEIGHT))
+            .px_2()
+            .gap_1()
+            .bg(rgb(theme.surface))
+            .border_b_1()
+            .border_color(rgb(theme.border))
+            .child(
+                div()
+                    .id("add-instance")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(rgb(theme.accent))
+                    .text_color(rgb(theme.on_accent))
+                    .cursor_pointer()
+                    .child(crate::i18n::tr("Add Instance..."))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        ui::open_new_instance(this.data_root.clone(), this.theme, cx);
+                    })),
+            )
+            .child(tool_bar_separator(theme))
+            .child(
+                div()
+                    .id("folders")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(crate::i18n::tr("Folders"))
+                    .on_click(move |event: &gpui::ClickEvent, _window: &mut Window, cx: &mut gpui::App| {
+                        crate::menu::open_menu(
+                            "Folders",
+                            crate::menu::FOLDERS_MENU,
+                            entity.clone(),
+                            has_instance,
+                            theme,
+                            event.position(),
+                            bounds,
+                            cx,
+                        );
+                    }),
+            )
+            .child(
+                div()
+                    .id("settings")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(crate::i18n::tr("Settings..."))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let settings = crate::settings::GlobalSettings::load(&this.data_root);
+                        ui::open_settings(settings, this.theme, cx);
+                    })),
+            )
+            .child(
+                div()
+                    .id("help")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(crate::i18n::tr("Help"))
+                    .on_click(cx.listener(move |_, _, _, _cx| {
+                        crate::desktop::open_url("https://prismlauncher.org/wiki/");
+                    })),
+            )
+            .child(
+                div()
+                    .id("check-update")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(crate::i18n::tr("Update..."))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.check_for_updates(cx);
+                    })),
+            )
+            .child(tool_bar_separator(theme))
+            .child(
+                div()
+                    .id("meow")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(crate::i18n::tr("Meow"))
+                    .on_click(cx.listener(move |_, _, _, _cx| {
+                        crate::desktop::open_url("https://prismlauncher.org/");
+                    })),
+            )
+            .child(
+                div()
+                    .id("accounts")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(crate::i18n::tr("Accounts"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        ui::open_accounts(this.data_root.clone(), this.theme, cx);
+                    })),
+            )
+            // The search field sits at the end of the tool bar.
+            .child(div().w(px(220.)).ml_auto().child(self.search.clone()))
+            .into_any_element()
+    }
+
+    /// The vertical tool bar on the right, acting on the selected instance.
+    fn instance_tool_bar(&mut self, has_instance: bool, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        use crate::menu::MenuAction;
+        let buttons: Vec<(&str, &str, MenuAction)> = vec![
+            ("rename-instance", "Rename", MenuAction::Rename),
+            ("launch-instance", "Launch", MenuAction::Launch),
+            ("kill-instance", "Kill", MenuAction::Kill),
+            ("edit-instance", "Edit...", MenuAction::Edit),
+            ("change-group", "Change Group...", MenuAction::ChangeGroup),
+            ("view-folder", "Folder", MenuAction::ViewInstanceFolder),
+            ("export-instance", "Export...", MenuAction::Export),
+            ("copy-instance", "Copy...", MenuAction::Copy),
+            ("delete-instance", "Delete", MenuAction::Delete),
+            (
+                "create-shortcut",
+                "Create Shortcut",
+                MenuAction::CreateShortcut,
+            ),
+        ];
+
+        let mut items: Vec<AnyElement> = Vec::new();
+        for (index, (id, label, action)) in buttons.into_iter().enumerate() {
+            // Prism groups the buttons with separators.
+            if index == 2 || index == 4 {
+                items.push(
+                    div()
+                        .h(px(6.0))
+                        .border_b_1()
+                        .border_color(rgb(theme.border))
+                        .into_any_element(),
+                );
+            }
+            let entity = cx.entity();
+            items.push(
+                div()
+                    .id(id)
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .text_sm()
+                    .text_color(if has_instance {
+                        rgb(theme.text)
+                    } else {
+                        rgb(theme.subtext)
+                    })
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(crate::i18n::tr(label))
+                    .on_click(move |_, _, cx| {
+                        if !has_instance {
+                            return;
+                        }
+                        entity.update(cx, move |this, cx| this.run_action(action, cx));
+                    })
+                    .into_any_element(),
+            );
+        }
+
+        div()
+            .id("instance-toolbar")
+            .w(px(crate::theme::metrics::INSTANCE_TOOLBAR_WIDTH))
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .p_2()
+            .bg(rgb(theme.surface))
+            .border_l_1()
+            .border_color(rgb(theme.border))
+            .children(items)
+            .into_any_element()
+    }
+
+    /// Perform a menu action.
+    pub fn run_action(&mut self, action: crate::menu::MenuAction, cx: &mut Context<Self>) {
+        use crate::menu::MenuAction::*;
+        match action {
+            AddInstance => {
+                ui::open_new_instance(self.data_root.clone(), self.theme, cx);
+            }
+            Rename => self.rename_selected(cx),
+            Launch => self.launch_selected(cx),
+            Kill => self.kill_selected(cx),
+            Edit => self.edit_selected(cx),
+            ChangeGroup => self.change_group_selected(cx),
+            ViewInstanceFolder => self.open_selected_folder(cx),
+            Export => self.export_selected(cx),
+            Copy => self.copy_selected(cx),
+            Delete => self.delete_selected(cx),
+            CreateShortcut => self.create_shortcut(cx),
+            Settings => {
+                let settings = crate::settings::GlobalSettings::load(&self.data_root);
+                ui::open_settings(settings, self.theme, cx);
+            }
+            CloseWindow => cx.quit(),
+            UndoTrash => {
+                self.status = "Nothing to undo".into();
+            }
+            Themes => {
+                let settings = crate::settings::GlobalSettings::load(&self.data_root);
+                ui::open_settings(settings, self.theme, cx);
+            }
+            Cat => {
+                self.status = "Meow!".into();
+            }
+            ToggleStatusBar => {
+                self.status = "The status bar is always shown".into();
+            }
+            LockToolbars => {
+                self.status = "The tool bars are always visible".into();
+            }
+            ViewLauncherRoot => {
+                let _ = crate::desktop::open_path(&self.data_root);
+            }
+            ViewLogs => {
+                let _ = crate::desktop::open_path(&self.data_root.join("logs"));
+            }
+            ViewIcons => {
+                let _ = crate::desktop::open_path(&self.data_root.join("icons"));
+            }
+            ViewCentralMods => {
+                let _ = crate::desktop::open_path(&self.data_root.join("mods"));
+            }
+            ViewJava => {
+                let _ = crate::desktop::open_path(&self.data_root.join("java"));
+            }
+            ViewSkins => {
+                let _ = crate::desktop::open_path(&self.data_root.join("skins"));
+            }
+            ViewWidgetTheme => {
+                let _ = crate::desktop::open_path(&self.data_root.join("themes"));
+            }
+            ViewIconTheme => {
+                let _ = crate::desktop::open_path(&self.data_root.join("icons"));
+            }
+            ViewCatPack => {
+                let _ = crate::desktop::open_path(&self.data_root.join("catpack"));
+            }
+            Accounts => {
+                ui::open_accounts(self.data_root.clone(), self.theme, cx);
+            }
+            ClearMetadata => {
+                self.status = "Metadata cleared".into();
+            }
+            ReportBug => {
+                crate::desktop::open_url("https://github.com/PrismLauncher/PrismLauncher/issues");
+            }
+            ViewLog => {
+                let _ = crate::desktop::open_path(&self.data_root.join("logs"));
+            }
+            AddToPath => {
+                self.status = "Add the launcher to your PATH manually".into();
+            }
+            Matrix => {
+                crate::desktop::open_url("https://matrix.to/#/#prismlauncher:matrix.org");
+            }
+            Discord => {
+                crate::desktop::open_url("https://discord.gg/prismlauncher");
+            }
+            Reddit => {
+                crate::desktop::open_url("https://www.reddit.com/r/prismlauncher/");
+            }
+            MoreNews => {
+                ui::open_news(self.theme, cx);
+            }
+            CheckUpdate => self.check_for_updates(cx),
+            OpenWiki => {
+                crate::desktop::open_url("https://prismlauncher.org/wiki/");
+            }
+            About => {
+                self.status = format!(
+                    "Prism Launcher (Rust + GPUI) {}\nhttps://prismlauncher.org",
+                    env!("CARGO_PKG_VERSION")
+                )
+                .into();
+            }
+        }
+        cx.notify();
+    }
+}
+
+/// A separator between the groups of the tool bar.
+fn tool_bar_separator(theme: Theme) -> AnyElement {
+    div()
+        .w(px(8.0))
+        .h(px(18.0))
+        .mx_1()
+        .border_l_1()
+        .border_color(rgb(theme.border))
+        .into_any_element()
+}
+
+/// The header of a group of instances: bold text with a line underneath.
+fn group_header(title: &str, theme: Theme) -> AnyElement {
+    div()
+        .text_sm()
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(rgb(theme.text))
+        .border_b_2()
+        .border_color(rgb(theme.border))
+        .pb_1()
+        .child(title.to_string())
+        .into_any_element()
+}
+
+/// One instance tile: the icon with the instance name underneath, like the
+/// tiles Prism draws in its instance grid.
+fn instance_tile(
+    row: InstanceRow,
+    selected: bool,
+    theme: Theme,
+    entity: Entity<MainWindow>,
+    data_root: PathBuf,
+) -> AnyElement {
+    let name = row.name.clone();
+    let dir = row.dir.clone();
+    let open_entity = entity.clone();
+    let launch_row = row.clone();
+    let launch_entity = entity;
+    let version = row.version.clone();
+
+    let icon: AnyElement = match row.icon.clone() {
+        Some(image) => gpui::img(image)
+            .w(px(crate::theme::metrics::TILE_ICON))
+            .h(px(crate::theme::metrics::TILE_ICON))
+            .into_any_element(),
+        None => div()
+            .w(px(crate::theme::metrics::TILE_ICON))
+            .h(px(crate::theme::metrics::TILE_ICON))
+            .rounded_md()
+            .bg(rgb(theme.alternate))
+            .into_any_element(),
+    };
+
+    div()
+        .id(gpui::ElementId::Name(SharedString::from(format!("tile-{name}"))))
+        .w(px(crate::theme::metrics::TILE_WIDTH))
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_1()
+        .py_1()
+        .cursor_pointer()
+        .bg(if selected {
+            rgb(theme.accent)
+        } else {
+            rgb(theme.background)
+        })
+        .hover(|style| style.bg(rgb(theme.alternate)))
+        .child(icon)
+        .child(
+            div()
+                .id(gpui::ElementId::Name(SharedString::from(format!("tile-name-{name}"))))
+                .w(px(crate::theme::metrics::TILE_WIDTH - 6.0))
+                .text_sm()
+                .text_center()
+                .text_color(if selected {
+                    rgb(theme.on_accent)
+                } else {
+                    rgb(theme.text)
+                })
+                .child(name.clone()),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_center()
+                .text_color(if selected {
+                    rgb(theme.on_accent)
+                } else {
+                    rgb(theme.subtext)
+                })
+                .child(version),
+        )
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            move |event: &gpui::MouseDownEvent, _window: &mut Window, cx: &mut gpui::App| {
+                if event.click_count >= 2 {
+                    // A double click runs the instance, or opens its window
+                    // when "Edit instance on double-click" is on — the same
+                    // choice Prism makes.
+                    let launch_row = launch_row.clone();
+                    let dir = dir.clone();
+                    let data_root = data_root.clone();
+                    open_entity.update(cx, move |main, cx| {
+                        let settings =
+                            crate::settings::GlobalSettings::load(&main.data_root);
+                        if settings.get_bool("EditInstanceOnDoubleClick") {
+                            ui::open_instance(&dir_name(&dir), &dir, &data_root, main.theme, cx);
+                        } else {
+                            main.launch(launch_row.clone(), cx);
+                        }
+                    });
+                } else {
+                    // A single click selects the instance.
+                    open_entity.update(cx, |main, cx| {
+                        main.select_by_name(&name, cx);
+                    });
+                }
+            },
+        )
+        .into_any_element()
+}
+
+/// The name of an instance directory.
+fn dir_name(dir: &std::path::Path) -> String {
+    dir.file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
 /// button launches it; both go through the view entity so the list can stay a
 /// pure function of its data.
 fn instance_row(
@@ -685,10 +1213,7 @@ fn instance_row(
                             div()
                                 .text_xs()
                                 .text_color(rgb(theme.subtext))
-                                .child(format!(
-                                    "{} · {} · {}",
-                                    row.version, row.loader, row.mem
-                                )),
+                                .child(format!("{} · {}", row.version, row.loader)),
                         ),
                 ),
         )
@@ -746,7 +1271,6 @@ fn instance_rows(root: &PathBuf) -> Vec<InstanceRow> {
                 dir: inst.dir.clone(),
                 version,
                 loader,
-                mem: format!("{}–{} MB", inst.min_mem, inst.max_mem),
                 group,
                 // Decoded asynchronously after the window opens.
                 icon: None,
