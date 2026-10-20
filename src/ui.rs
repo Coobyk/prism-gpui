@@ -118,7 +118,7 @@ impl InstanceView {
             name: name.into(),
             dir,
             data_root,
-            tab: Tab::Mods,
+            tab: Tab::Logs,
             entries: Vec::new(),
             status: "Ready".into(),
             theme,
@@ -884,7 +884,7 @@ pub fn open_instance(name: &str, dir: &Path, data_root: &Path, theme: Theme, cx:
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(gpui::TitlebarOptions {
-                    title: Some(format!("{name} — Prism Launcher").into()),
+                    title: Some(format!("Console window for {name}").into()),
                     ..Default::default()
                 }),
                 ..Default::default()

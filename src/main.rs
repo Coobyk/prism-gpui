@@ -1252,7 +1252,7 @@ fn main() {
 
     let shared_root = Arc::new(root);
     Application::new().run(move |cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1024.), px(720.)), cx);
+        let bounds = Bounds::centered(None, size(px(800.), px(600.)), cx);
         let rows = rows.clone();
         let root = shared_root.clone();
         let theme = theme;
