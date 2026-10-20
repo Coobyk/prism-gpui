@@ -49,12 +49,12 @@ impl Translator {
     pub fn load(data_root: &Path, lang: &str) -> Self {
         let mut catalog = BTreeMap::new();
         let path: PathBuf = data_root.join("translations").join(format!("{lang}.json"));
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&text) {
-                for (k, v) in map {
-                    if let Some(s) = v.as_str() {
-                        catalog.insert(k, s.to_string());
-                    }
+        if let Ok(text) = std::fs::read_to_string(&path)
+            && let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&text)
+        {
+            for (k, v) in map {
+                if let Some(s) = v.as_str() {
+                    catalog.insert(k, s.to_string());
                 }
             }
         }

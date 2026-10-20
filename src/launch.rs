@@ -44,10 +44,10 @@ impl LaunchProfile {
             .join("meta")
             .join("net.minecraft")
             .join(format!("{}.json", self.mc_version));
-        if let Some(v) = meta::read_version_json(&meta_path) {
-            if meta::ensure_vanilla_client(&self.data_root, &v)? {
-                n += 1;
-            }
+        if let Some(v) = meta::read_version_json(&meta_path)
+            && meta::ensure_vanilla_client(&self.data_root, &v)?
+        {
+            n += 1;
         }
         n += meta::ensure_all_assets(&self.data_root, &self.mc_version).unwrap_or(0);
         Ok(n)
@@ -103,7 +103,10 @@ pub fn prepare_natives(dest: &Path, jars: &[PathBuf]) -> usize {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    if std::fs::read_to_string(&stamp).map(|s| s == signature).unwrap_or(false) {
+    if std::fs::read_to_string(&stamp)
+        .map(|s| s == signature)
+        .unwrap_or(false)
+    {
         return 0;
     }
     if std::fs::create_dir_all(dest).is_err() {
@@ -178,11 +181,7 @@ pub fn run_hook(command: &str, game_dir: &Path) -> Result<(), String> {
 }
 
 /// Build a launch profile for an instance without an account (offline/dev).
-pub fn build_profile(
-    inst_dir: &Path,
-    data_root: &Path,
-    java_path: &Path,
-) -> Option<LaunchProfile> {
+pub fn build_profile(inst_dir: &Path, data_root: &Path, java_path: &Path) -> Option<LaunchProfile> {
     build_profile_with_account(inst_dir, data_root, java_path, None)
 }
 
@@ -222,14 +221,22 @@ pub fn record_playtime(instance_dir: &Path, seconds: u64) {
 /// The time an instance was played, in seconds.
 pub fn total_time_played(instance_dir: &Path) -> u64 {
     crate::instance::Instance::load(instance_dir)
-        .and_then(|i| i.settings.get("totalTimePlayed").and_then(|v| v.parse().ok()))
+        .and_then(|i| {
+            i.settings
+                .get("totalTimePlayed")
+                .and_then(|v| v.parse().ok())
+        })
         .unwrap_or(0)
 }
 
 /// When an instance was launched the last time, in milliseconds.
 pub fn last_launch_time(instance_dir: &Path) -> u64 {
     crate::instance::Instance::load(instance_dir)
-        .and_then(|i| i.settings.get("lastLaunchTime").and_then(|v| v.parse().ok()))
+        .and_then(|i| {
+            i.settings
+                .get("lastLaunchTime")
+                .and_then(|v| v.parse().ok())
+        })
         .unwrap_or(0)
 }
 
@@ -267,7 +274,9 @@ pub fn build_profile_with_account(
 
     // Components are ordered dependency-first; later ones (loader) override.
     for comp in &pack.components {
-        let candidate = meta_dir.join(&comp.uid).join(format!("{}.json", &comp.version));
+        let candidate = meta_dir
+            .join(&comp.uid)
+            .join(format!("{}.json", comp.version));
         let Some(v) = meta::read_version_json(&candidate) else {
             continue;
         };
@@ -288,16 +297,16 @@ pub fn build_profile_with_account(
             if !v.main_class.is_empty() {
                 version.main_class = v.main_class.clone();
             }
-            if let Some(args) = &v.arguments {
-                if !args.game.is_empty() {
-                    loader_game_args = args.game.clone();
-                    loader_game_args_raw = None;
-                }
+            if let Some(args) = &v.arguments
+                && !args.game.is_empty()
+            {
+                loader_game_args = args.game.clone();
+                loader_game_args_raw = None;
             }
-            if let Some(raw) = &v.minecraft_arguments {
-                if !raw.is_empty() {
-                    loader_game_args_raw = Some(raw.clone());
-                }
+            if let Some(raw) = &v.minecraft_arguments
+                && !raw.is_empty()
+            {
+                loader_game_args_raw = Some(raw.clone());
             }
             jvm_args.extend(collect_strings(Some(&v.extra_jvm_args)));
             loader_game_args.extend(v.extra_game_args.clone());
@@ -359,12 +368,14 @@ pub fn build_profile_with_account(
             vanilla
         }
     };
-    if game_args.is_empty() {
-        if let Some(raw) = &version.minecraft_arguments {
-            game_args = raw.split_whitespace().map(|s| s.to_string()).collect();
-        }
+    if game_args.is_empty()
+        && let Some(raw) = &version.minecraft_arguments
+    {
+        game_args = raw.split_whitespace().map(|s| s.to_string()).collect();
     }
-    let player_name = account.map(|a| a.username.clone()).unwrap_or_else(|| "Player".into());
+    let player_name = account
+        .map(|a| a.username.clone())
+        .unwrap_or_else(|| "Player".into());
     let player_uuid = account
         .map(|a| a.uuid.clone())
         .unwrap_or_else(|| "00000000000000000000000000000000".to_string());
@@ -387,7 +398,14 @@ pub fn build_profile_with_account(
         ("${version_name}", version.id.as_str()),
         ("${game_directory}", game_dir.to_str().unwrap_or(".")),
         ("${assets_root}", assets_dir.to_str().unwrap_or(".")),
-        ("${assets_index_name}", version.asset_index.as_ref().map(|a| a.id.as_str()).unwrap_or("")),
+        (
+            "${assets_index_name}",
+            version
+                .asset_index
+                .as_ref()
+                .map(|a| a.id.as_str())
+                .unwrap_or(""),
+        ),
         ("${auth_uuid}", player_uuid.as_str()),
         ("${auth_xuid}", ""),
         ("${auth_access_token}", access_token.as_str()),
@@ -403,7 +421,10 @@ pub fn build_profile_with_account(
         ("${launcher_version}", env!("CARGO_PKG_VERSION")),
         ("${classpath}", classpath_string.as_str()),
         ("${classpath_separator}", ":"),
-        ("${library_directory}", libraries_dir.to_str().unwrap_or(".")),
+        (
+            "${library_directory}",
+            libraries_dir.to_str().unwrap_or("."),
+        ),
     ];
     let subst = |s: &str| -> String {
         let mut out = s.to_string();
@@ -454,19 +475,19 @@ pub fn build_profile_with_account(
         split_command(settings.wrapper_command())
     };
 
-    let pre_launch = cfg_get("PreLaunchCommand")
-        .unwrap_or_else(|| settings.pre_launch_command().to_string());
+    let pre_launch =
+        cfg_get("PreLaunchCommand").unwrap_or_else(|| settings.pre_launch_command().to_string());
     let post_exit =
         cfg_get("PostExitCommand").unwrap_or_else(|| settings.post_exit_command().to_string());
 
     // Per-instance environment variables (`EnvVars` holds a JSON object).
     let mut env: Vec<(String, String)> = Vec::new();
-    if let Some(raw) = cfg_get("EnvVars") {
-        if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(&raw) {
-            for (k, v) in map {
-                if let Some(s) = v.as_str() {
-                    env.push((k, s.to_string()));
-                }
+    if let Some(raw) = cfg_get("EnvVars")
+        && let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(&raw)
+    {
+        for (k, v) in map {
+            if let Some(s) = v.as_str() {
+                env.push((k, s.to_string()));
             }
         }
     }
@@ -487,15 +508,14 @@ pub fn build_profile_with_account(
     if cfg_get("LaunchMaximized").as_deref() == Some("true") {
         game_args.push("--fullscreen".to_string());
     } else if let (Some(w), Some(h)) = (cfg_get("MinecraftWinWidth"), cfg_get("MinecraftWinHeight"))
+        && let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>())
+        && w > 0
+        && h > 0
     {
-        if let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>()) {
-            if w > 0 && h > 0 {
-                game_args.push("--width".to_string());
-                game_args.push(w.to_string());
-                game_args.push("--height".to_string());
-                game_args.push(h.to_string());
-            }
-        }
+        game_args.push("--width".to_string());
+        game_args.push(w.to_string());
+        game_args.push("--height".to_string());
+        game_args.push(h.to_string());
     }
 
     // Vanilla client jar: shared library cache, or a legacy per-instance copy.
@@ -533,10 +553,10 @@ fn collect_strings(args: Option<&Vec<serde_json::Value>>) -> Vec<String> {
         } else if let Some(obj) = a.as_object() {
             // Rules-based args: keep only those whose rules allow the current
             // platform (e.g. `-XstartOnFirstThread` is macOS-only).
-            if let Some(rules) = obj.get("rules").and_then(|r| r.as_array()) {
-                if !crate::meta::rules_allow(rules) {
-                    continue;
-                }
+            if let Some(rules) = obj.get("rules").and_then(|r| r.as_array())
+                && !crate::meta::rules_allow(rules)
+            {
+                continue;
             }
             if let Some(values) = obj.get("value") {
                 if let Some(s) = values.as_str() {
@@ -607,13 +627,19 @@ mod tests {
     }
     #[test]
     fn split_command_handles_quotes() {
-        assert_eq!(split_command("gamemoderun mangohud"), vec!["gamemoderun", "mangohud"]);
+        assert_eq!(
+            split_command("gamemoderun mangohud"),
+            vec!["gamemoderun", "mangohud"]
+        );
         assert_eq!(
             split_command("env FOO='a b' bar"),
             vec!["env", "FOO=a b", "bar"]
         );
         assert_eq!(split_command("  "), Vec::<String>::new());
-        assert_eq!(split_command("\"quoted path\"/bin"), vec!["quoted path/bin"]);
+        assert_eq!(
+            split_command("\"quoted path\"/bin"),
+            vec!["quoted path/bin"]
+        );
     }
 
     #[test]
@@ -683,12 +709,21 @@ mod tests {
         )
         .unwrap();
 
-        let profile = build_profile_with_account(&inst, td.path(), Path::new("/usr/bin/java"), None)
-            .expect("profile");
+        let profile =
+            build_profile_with_account(&inst, td.path(), Path::new("/usr/bin/java"), None)
+                .expect("profile");
         assert_eq!(profile.min_mem_mb, 1024);
         assert_eq!(profile.max_mem_mb, 2048);
-        assert!(profile.game_args.contains(&"--quickPlayMultiplayer".to_string()));
-        assert!(profile.game_args.contains(&"mc.example.org:25566".to_string()));
+        assert!(
+            profile
+                .game_args
+                .contains(&"--quickPlayMultiplayer".to_string())
+        );
+        assert!(
+            profile
+                .game_args
+                .contains(&"mc.example.org:25566".to_string())
+        );
         assert!(profile.game_args.contains(&"--width".to_string()));
         assert!(profile.game_args.contains(&"1280".to_string()));
         assert_eq!(profile.env, vec![("FOO".to_string(), "bar".to_string())]);
@@ -786,9 +821,11 @@ mod tests {
         // The vanilla `-cp ${classpath}` stub is removed; we build our own.
         assert!(!profile.jvm_args.iter().any(|a| a == "-cp"));
         // Natives placeholder is substituted with the per-instance directory.
-        assert!(profile
-            .jvm_args
-            .iter()
-            .any(|a| a.contains("natives") && !a.contains("${")));
+        assert!(
+            profile
+                .jvm_args
+                .iter()
+                .any(|a| a.contains("natives") && !a.contains("${"))
+        );
     }
 }

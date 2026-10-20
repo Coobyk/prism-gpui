@@ -188,10 +188,7 @@ mod offline_tests {
 ///
 /// An instance may pin a specific account (`UseAccountForInstance` +
 /// `InstanceAccountId`); otherwise the globally active account is used.
-pub fn account_for_instance(
-    data_root: &Path,
-    inst_dir: &Path,
-) -> Option<crate::auth::Account> {
+pub fn account_for_instance(data_root: &Path, inst_dir: &Path) -> Option<crate::auth::Account> {
     let store = AccountStore::load(data_root);
     if let Some(inst) = crate::instance::Instance::load(inst_dir) {
         let pinned = inst
@@ -200,7 +197,11 @@ pub fn account_for_instance(
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
         if pinned {
-            let uuid = inst.settings.get("InstanceAccountId").cloned().unwrap_or_default();
+            let uuid = inst
+                .settings
+                .get("InstanceAccountId")
+                .cloned()
+                .unwrap_or_default();
             if let Some(account) = store.accounts.iter().find(|a| a.uuid == uuid) {
                 return Some(account.clone());
             }

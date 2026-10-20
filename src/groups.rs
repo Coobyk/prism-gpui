@@ -110,9 +110,7 @@ impl GroupStore {
             candidate = format!("{name} {counter}");
             counter += 1;
         }
-        self.groups
-            .entry(candidate.clone())
-            .or_default();
+        self.groups.entry(candidate.clone()).or_default();
         candidate
     }
 

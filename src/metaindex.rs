@@ -138,11 +138,7 @@ pub fn index(data_root: &Path, uid: &str) -> Result<MetaIndex, String> {
 }
 
 /// Fetch (and cache) one component version, along with all of its libraries.
-pub fn ensure_component(
-    data_root: &Path,
-    uid: &str,
-    version: &str,
-) -> Result<VersionJson, String> {
+pub fn ensure_component(data_root: &Path, uid: &str, version: &str) -> Result<VersionJson, String> {
     let path = meta_dir(data_root, uid).join(format!("{version}.json"));
     let component = if let Some(cached) = crate::meta::read_version_json(&path) {
         cached
@@ -151,10 +147,10 @@ pub fn ensure_component(
         let body = crate::net::get_string(&url)?;
         let parsed: VersionJson = serde_json::from_str(&body)
             .map_err(|e| format!("component {uid}/{version} was malformed: {e}"))?;
-        if let Some(dir) = path.parent() {
-            if std::fs::create_dir_all(dir).is_ok() {
-                let _ = std::fs::write(&path, body.as_bytes());
-            }
+        if let Some(dir) = path.parent()
+            && std::fs::create_dir_all(dir).is_ok()
+        {
+            let _ = std::fs::write(&path, body.as_bytes());
         }
         parsed
     };
@@ -484,7 +480,10 @@ mod tests {
         assert_eq!(index.newest_for("1.20.1").unwrap().version, "47.2.0");
         assert_eq!(index.for_minecraft("1.20.1").len(), 2);
         assert!(index.recommended_for("1.19.2").is_none());
-        assert_eq!(index.find("50.2.14").unwrap().requires_minecraft(), Some("1.20.6"));
+        assert_eq!(
+            index.find("50.2.14").unwrap().requires_minecraft(),
+            Some("1.20.6")
+        );
     }
 
     #[test]
@@ -580,7 +579,8 @@ mod tests {
         );
         // Without a recommendation preference the newest loader still wins
         // because both candidates resolve.
-        let chain = resolve_chain(td.path(), "net.fabricmc.fabric-loader", "1.21.1", false).unwrap();
+        let chain =
+            resolve_chain(td.path(), "net.fabricmc.fabric-loader", "1.21.1", false).unwrap();
         assert_eq!(chain.last().unwrap().version, "0.20.0");
         // An unsupported Minecraft version fails cleanly.
         assert!(resolve_chain(td.path(), "net.fabricmc.fabric-loader", "1.7.10", true).is_err());

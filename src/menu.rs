@@ -7,7 +7,7 @@
 use crate::theme::Theme;
 use gpui::{
     App, Bounds, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window,
-    WindowBounds, WindowOptions, WindowKind, div, prelude::*, px, rgb,
+    WindowBounds, WindowKind, WindowOptions, div, prelude::*, px, rgb,
 };
 
 /// An action a menu entry performs.
@@ -258,11 +258,7 @@ impl Render for MenuView {
                     .h(px(22.0))
                     .px_3()
                     .cursor_pointer()
-                    .bg(if enabled {
-                        rgb(theme.surface)
-                    } else {
-                        rgb(theme.surface)
-                    })
+                    .bg(rgb(theme.surface))
                     .child(
                         div()
                             .text_sm()
@@ -296,6 +292,7 @@ impl Render for MenuView {
 }
 
 /// Open the drop-down of a menu under the given position.
+#[allow(clippy::too_many_arguments)]
 pub fn open_menu(
     title: &'static str,
     items: &'static [MenuItem],
@@ -310,10 +307,7 @@ pub fn open_menu(
     let (w, h) = view.window_size();
     let x = window_bounds.origin.x + position.x;
     let y = window_bounds.origin.y + position.y;
-    let bounds = Bounds::new(
-        gpui::Point::new(x, y),
-        gpui::size(px(w), px(h)),
-    );
+    let bounds = Bounds::new(gpui::Point::new(x, y), gpui::size(px(w), px(h)));
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

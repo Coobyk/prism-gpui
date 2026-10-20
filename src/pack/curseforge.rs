@@ -126,8 +126,8 @@ pub fn extract_overrides(pack: &Path, instance_dir: &Path) -> Result<(), String>
         if rel.is_empty() {
             continue;
         }
-        let dest = fs::safe_join(&mc_dir, rel)
-            .ok_or_else(|| format!("unsafe path in pack: {rel}"))?;
+        let dest =
+            fs::safe_join(&mc_dir, rel).ok_or_else(|| format!("unsafe path in pack: {rel}"))?;
         if entry.is_dir() {
             std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
         } else {
@@ -162,10 +162,17 @@ pub fn export(instance_dir: &Path, out: &Path, name: &str, version: &str) -> Res
         overrides: "overrides".into(),
     };
     let text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
-    zip.start_file("manifest.json", opts).map_err(|e| e.to_string())?;
+    zip.start_file("manifest.json", opts)
+        .map_err(|e| e.to_string())?;
     zip.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
 
-    for sub in ["config", "defaultconfigs", "mods", "resourcepacks", "shaderpacks"] {
+    for sub in [
+        "config",
+        "defaultconfigs",
+        "mods",
+        "resourcepacks",
+        "shaderpacks",
+    ] {
         let dir = mc_dir.join(sub);
         if !dir.is_dir() {
             continue;

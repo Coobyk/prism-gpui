@@ -5,12 +5,11 @@ use std::ops::Range;
 
 use crate::theme::Theme;
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window,
-    actions, div, fill, hsla, point, prelude::*, px, relative,
-    rgb, rgba, size,
+    App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
+    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, LayoutId, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
+    SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla,
+    point, prelude::*, px, relative, rgb, rgba, size,
 };
 use unicode_segmentation::*;
 
@@ -455,10 +454,7 @@ impl Element for TextElement {
         } else if input.masked {
             // `*` is one byte, so every index into the masked text is still a
             // valid index into the real content.
-            (
-                SharedString::from("*".repeat(content.len())),
-                style.color,
-            )
+            (SharedString::from("*".repeat(content.len())), style.color)
         } else {
             (content, style.color)
         };
@@ -623,7 +619,6 @@ impl Focusable for TextInput {
         self.focus_handle.clone()
     }
 }
-
 
 impl TextInput {
     pub fn new(placeholder: impl Into<SharedString>, cx: &mut Context<Self>) -> Self {

@@ -205,15 +205,15 @@ fn rule_matches(rule: &serde_json::Value) -> bool {
         }
     }
     if let Some(os) = rule.get("os") {
-        if let Some(name) = os.get("name").and_then(|v| v.as_str()) {
-            if name != os_name() {
-                return false;
-            }
+        if let Some(name) = os.get("name").and_then(|v| v.as_str())
+            && name != os_name()
+        {
+            return false;
         }
-        if let Some(arch) = os.get("arch").and_then(|v| v.as_str()) {
-            if arch != os_arch() {
-                return false;
-            }
+        if let Some(arch) = os.get("arch").and_then(|v| v.as_str())
+            && arch != os_arch()
+        {
+            return false;
         }
         // `os.version` is a regex over the OS version; matching it requires the
         // running kernel version, which we do not query, so an os.version rule
@@ -249,9 +249,16 @@ impl Library {
     /// The legacy natives classifier for the current platform, if declared.
     pub fn native_classifier(&self) -> Option<String> {
         let key = os_name();
-        self.natives
-            .get(key)
-            .map(|c| c.replace("${arch}", if cfg!(target_pointer_width = "64") { "64" } else { "32" }))
+        self.natives.get(key).map(|c| {
+            c.replace(
+                "${arch}",
+                if cfg!(target_pointer_width = "64") {
+                    "64"
+                } else {
+                    "32"
+                },
+            )
+        })
     }
 
     /// A modern (`:natives-<os>`) native jar.
@@ -261,14 +268,13 @@ impl Library {
 
     /// The artifact holding this library's natives, if any.
     pub fn native_artifact(&self) -> Option<Artifact> {
-        if let Some(classifier) = self.native_classifier() {
-            if let Some(a) = self
+        if let Some(classifier) = self.native_classifier()
+            && let Some(a) = self
                 .downloads
                 .as_ref()
                 .and_then(|d| d.classifiers.get(&classifier))
-            {
-                return Some(a.clone());
-            }
+        {
+            return Some(a.clone());
         }
         if self.is_modern_native() {
             return self.downloads.as_ref().and_then(|d| d.artifact.clone());
@@ -398,12 +404,11 @@ impl VersionManifest {
 /// Fetch (and cache) Mojang's version manifest.
 pub fn version_manifest(data_root: &Path) -> Result<VersionManifest, String> {
     let cache = data_root.join("meta").join("mojang_version_manifest.json");
-    if let Ok(text) = std::fs::read_to_string(&cache) {
-        if let Ok(m) = serde_json::from_str::<VersionManifest>(&text) {
-            if !m.versions.is_empty() {
-                return Ok(m);
-            }
-        }
+    if let Ok(text) = std::fs::read_to_string(&cache)
+        && let Ok(m) = serde_json::from_str::<VersionManifest>(&text)
+        && !m.versions.is_empty()
+    {
+        return Ok(m);
     }
     let body = crate::net::get_string(MOJANG_VERSION_MANIFEST)?;
     let manifest: VersionManifest =
@@ -431,9 +436,9 @@ pub fn ensure_minecraft_metadata(data_root: &Path, version: &str) -> Result<Vers
         v
     } else {
         let manifest = version_manifest(data_root)?;
-        let entry = manifest.find(version).ok_or_else(|| {
-            format!("Minecraft {version} is not in Mojang's version manifest")
-        })?;
+        let entry = manifest
+            .find(version)
+            .ok_or_else(|| format!("Minecraft {version} is not in Mojang's version manifest"))?;
         let body = crate::net::get_string(&entry.url)?;
         let parsed: VersionJson = serde_json::from_str(&body)
             .map_err(|e| format!("Minecraft {version} metadata was malformed: {e}"))?;
@@ -495,7 +500,10 @@ pub fn ensure_vanilla_client(data_root: &Path, version: &VersionJson) -> Result<
 
 /// Ensure every asset object referenced by a version's asset index is present.
 pub fn ensure_all_assets(data_root: &Path, version: &str) -> Result<usize, String> {
-    let path = data_root.join("meta").join("net.minecraft").join(format!("{version}.json"));
+    let path = data_root
+        .join("meta")
+        .join("net.minecraft")
+        .join(format!("{version}.json"));
     let json = read_version_json(&path).ok_or_else(|| format!("no metadata for {version}"))?;
     let Some(index) = ensure_asset_index(data_root, &json)? else {
         return Ok(0);
@@ -533,12 +541,11 @@ pub fn required_java_major(inst_dir: &Path, data_root: &Path) -> u32 {
                     .join("meta")
                     .join("net.minecraft")
                     .join(format!("{}.json", comp.version));
-                if let Some(v) = read_version_json(&candidate) {
-                    if let Some(j) = v.java_version {
-                        if j.major_version > 0 {
-                            return j.major_version;
-                        }
-                    }
+                if let Some(v) = read_version_json(&candidate)
+                    && let Some(j) = v.java_version
+                    && j.major_version > 0
+                {
+                    return j.major_version;
                 }
                 return crate::java::heuristic_major(&comp.version);
             }
@@ -592,21 +599,17 @@ pub fn natives_artifacts(libs_dir: &Path, version: &VersionJson) -> Vec<std::pat
 impl Library {
     /// Resolve the download URL for this library's artifact.
     pub fn artifact_url(&self) -> Option<String> {
-        if let Some(a) = self.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
-            if !a.url.is_empty() {
-                return Some(a.url.clone());
-            }
+        if let Some(a) = self.downloads.as_ref().and_then(|d| d.artifact.as_ref())
+            && !a.url.is_empty()
+        {
+            return Some(a.url.clone());
         }
         let path = self.maven_path()?;
         let base = self
             .url
             .clone()
             .unwrap_or_else(|| "https://libraries.minecraft.net/".to_string());
-        Some(format!(
-            "{}/{}",
-            base.trim_end_matches('/'),
-            path
-        ))
+        Some(format!("{}/{}", base.trim_end_matches('/'), path))
     }
 
     pub fn artifact_sha1(&self) -> Option<&str> {
@@ -658,8 +661,12 @@ pub fn ensure_libraries(data_root: &Path, version: &VersionJson) -> Result<usize
             }
             continue;
         }
-        let Some(rel) = lib.maven_path() else { continue };
-        let Some(url) = lib.artifact_url() else { continue };
+        let Some(rel) = lib.maven_path() else {
+            continue;
+        };
+        let Some(url) = lib.artifact_url() else {
+            continue;
+        };
         let dest = libs_dir.join(&rel);
         let before = dest.is_file();
         crate::net::download_verified(&url, &dest, lib.artifact_sha1())?;
@@ -671,7 +678,10 @@ pub fn ensure_libraries(data_root: &Path, version: &VersionJson) -> Result<usize
 }
 
 /// Ensure the asset index file is present; returns its path.
-pub fn ensure_asset_index(data_root: &Path, version: &VersionJson) -> Result<Option<std::path::PathBuf>, String> {
+pub fn ensure_asset_index(
+    data_root: &Path,
+    version: &VersionJson,
+) -> Result<Option<std::path::PathBuf>, String> {
     let Some(ai) = &version.asset_index else {
         return Ok(None);
     };
@@ -728,9 +738,7 @@ pub fn ensure_assets_with_workers(
         .objects
         .values()
         .map(|o| o.hash.clone())
-        .filter(|h| {
-            h.len() > 2 && !objects_dir.join(&h[..2]).join(h).is_file()
-        })
+        .filter(|h| h.len() > 2 && !objects_dir.join(&h[..2]).join(h).is_file())
         .take(limit.unwrap_or(usize::MAX))
         .collect();
     if todo.is_empty() {
@@ -744,26 +752,28 @@ pub fn ensure_assets_with_workers(
 
     std::thread::scope(|scope| {
         for _ in 0..workers {
-            scope.spawn(|| loop {
-                let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let Some(hash) = todo.get(i) else { break };
-                if error.lock().map(|e| e.is_some()).unwrap_or(true) {
-                    break;
-                }
-                let sub = &hash[..2];
-                let dest = objects_dir.join(sub).join(hash);
-                let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
-                match crate::net::download_verified(&url, &dest, Some(hash)) {
-                    Ok(()) => {
-                        downloaded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some(hash) = todo.get(i) else { break };
+                    if error.lock().map(|e| e.is_some()).unwrap_or(true) {
+                        break;
                     }
-                    Err(e) => {
-                        if let Ok(mut slot) = error.lock() {
-                            if slot.is_none() {
+                    let sub = &hash[..2];
+                    let dest = objects_dir.join(sub).join(hash);
+                    let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
+                    match crate::net::download_verified(&url, &dest, Some(hash)) {
+                        Ok(()) => {
+                            downloaded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        Err(e) => {
+                            if let Ok(mut slot) = error.lock()
+                                && slot.is_none()
+                            {
                                 *slot = Some(e);
                             }
+                            break;
                         }
-                        break;
                     }
                 }
             });
@@ -904,7 +914,9 @@ mod tests {
         assert_eq!(modern.is_modern_native(), cfg!(target_os = "linux"));
         assert_eq!(
             modern.native_artifact().map(|a| a.path),
-            cfg!(target_os = "linux").then(|| "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-linux.jar".to_string())
+            cfg!(target_os = "linux").then(|| {
+                "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-linux.jar".to_string()
+            })
         );
     }
 
@@ -989,9 +1001,8 @@ pub fn list_versions(data_root: &Path, uid: &str) -> Option<MetaIndex> {
 /// Set (or add) a component version in an instance's mmc-pack.json.
 pub fn set_component(inst_dir: &Path, uid: &str, version: &str) -> Result<(), String> {
     let path = inst_dir.join("mmc-pack.json");
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-        r#"{"formatVersion":1,"components":[]}"#.to_string()
-    });
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| r#"{"formatVersion":1,"components":[]}"#.to_string());
     let mut value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     let components = value
         .get_mut("components")

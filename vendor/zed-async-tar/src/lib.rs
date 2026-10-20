@@ -18,6 +18,8 @@
 //     all just super thin wrappers (e.g. easy to codegen).
 
 #![deny(missing_docs)]
+// The vendored copy is kept as it is upstream.
+#![allow(clippy::all)]
 #![deny(clippy::all)]
 
 use std::io::{Error, ErrorKind};

@@ -126,14 +126,18 @@ impl AtManifest {
         if !self.minecraft.is_empty() {
             out.push(("net.minecraft".to_string(), self.minecraft.clone()));
         }
-        if let Some(l) = &self.loader {
-            if let Some(uid) = loader_uid(&l.loader_type) {
-                out.push((uid.to_string(), l.version.clone()));
-            }
+        if let Some(l) = &self.loader
+            && let Some(uid) = loader_uid(&l.loader_type)
+        {
+            out.push((uid.to_string(), l.version.clone()));
         }
         if out.len() <= 1 {
             // Infer Forge from the manifest's `type = "forge"` entry.
-            if let Some(f) = self.mods.iter().find(|m| m.file_type.eq_ignore_ascii_case("forge")) {
+            if let Some(f) = self
+                .mods
+                .iter()
+                .find(|m| m.file_type.eq_ignore_ascii_case("forge"))
+            {
                 let version = f
                     .version
                     .strip_prefix(&format!("{}-", self.minecraft))
@@ -223,7 +227,11 @@ impl AtFile {
     pub fn target_dir(&self, minecraft: &str) -> Option<String> {
         let kind = self.file_type.to_ascii_lowercase();
         Some(match kind.as_str() {
-            "root" | "extract" | "decomp" | "texturepackextract" | "resourcepackextract"
+            "root"
+            | "extract"
+            | "decomp"
+            | "texturepackextract"
+            | "resourcepackextract"
             | "mcpc" => return None,
             "forge" | "jar" | "jarmods" => "mods".to_string(),
             "mods" | "mod" => "mods".to_string(),
@@ -262,7 +270,11 @@ impl AtLauncher {
                     || p.description.to_ascii_lowercase().contains(&q)
             });
         }
-        packs.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        packs.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
         Ok(packs)
     }
 
@@ -315,7 +327,11 @@ impl AtLauncher {
             };
             let dest = crate::fs::safe_join(game_dir, &format!("{dir}/{name}"))
                 .ok_or_else(|| format!("unsafe path in ATLauncher manifest: {dir}/{name}"))?;
-            let md5 = if file.md5.is_empty() { None } else { Some(file.md5.as_str()) };
+            let md5 = if file.md5.is_empty() {
+                None
+            } else {
+                Some(file.md5.as_str())
+            };
             match crate::net::download_verified_md5(&url, &dest, md5) {
                 Ok(()) => n += 1,
                 Err(e) => failed.push(format!("{}: {e}", file.name)),
@@ -335,7 +351,11 @@ impl AtLauncher {
             };
             let dest = crate::fs::safe_join(game_dir, &format!("libraries/{rel}"))
                 .ok_or_else(|| format!("unsafe library path: {rel}"))?;
-            let md5 = if lib.md5.is_empty() { None } else { Some(lib.md5.as_str()) };
+            let md5 = if lib.md5.is_empty() {
+                None
+            } else {
+                Some(lib.md5.as_str())
+            };
             match crate::net::download_verified_md5(&url, &dest, md5) {
                 Ok(()) => n += 1,
                 Err(e) => failed.push(format!("library {}: {e}", lib.file)),
@@ -386,7 +406,10 @@ mod tests {
     #[test]
     fn derives_safe_names() {
         assert_eq!(safe_name("MoonQuest"), "MoonQuest");
-        assert_eq!(safe_name("FTB Presents: Direwolf20"), "FTBPresentsDirewolf20");
+        assert_eq!(
+            safe_name("FTB Presents: Direwolf20"),
+            "FTBPresentsDirewolf20"
+        );
         assert_eq!(safe_name("A B-C_D!"), "ABCD");
     }
 
@@ -403,7 +426,10 @@ mod tests {
         );
         f.download = "direct".into();
         f.url = "https://example.com/a.jar".into();
-        assert_eq!(f.download_url().as_deref(), Some("https://example.com/a.jar"));
+        assert_eq!(
+            f.download_url().as_deref(),
+            Some("https://example.com/a.jar")
+        );
         f.download = "browser".into();
         assert_eq!(f.download_url(), None);
     }

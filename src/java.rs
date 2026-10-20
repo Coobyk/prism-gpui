@@ -36,11 +36,11 @@ impl JavaInstall {
         // fallback: parse "java version \"X\"" line
         if version.is_empty() {
             for line in stderr.lines() {
-                if line.contains("version") {
-                    if let Some(s) = line.split('"').nth(1) {
-                        version = s.to_string();
-                        break;
-                    }
+                if line.contains("version")
+                    && let Some(s) = line.split('"').nth(1)
+                {
+                    version = s.to_string();
+                    break;
                 }
             }
         }
@@ -61,22 +61,21 @@ pub fn discover_java(data_root: &Path) -> Vec<JavaInstall> {
     let explicit = settings.java_path().trim().to_string();
     if !explicit.is_empty() {
         let p = PathBuf::from(&explicit);
-        if p.is_file() {
-            if let Some(inst) = JavaInstall::probe(&p) {
-                out.push(inst);
-            }
+        if p.is_file()
+            && let Some(inst) = JavaInstall::probe(&p)
+        {
+            out.push(inst);
         }
     }
     let java_dir = settings.java_dir();
     if let Ok(entries) = std::fs::read_dir(&java_dir) {
         for e in entries.flatten() {
             let bin = e.path().join("bin").join("java");
-            if bin.is_file() {
-                if let Some(inst) = JavaInstall::probe(&bin) {
-                    if !out.iter().any(|i| i.path == inst.path) {
-                        out.push(inst);
-                    }
-                }
+            if bin.is_file()
+                && let Some(inst) = JavaInstall::probe(&bin)
+                && !out.iter().any(|i| i.path == inst.path)
+            {
+                out.push(inst);
             }
         }
     }
@@ -84,12 +83,11 @@ pub fn discover_java(data_root: &Path) -> Vec<JavaInstall> {
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in path_var.split(':') {
             let bin = PathBuf::from(dir).join("java");
-            if bin.is_file() {
-                if let Some(inst) = JavaInstall::probe(&bin) {
-                    if !out.iter().any(|i| i.path == inst.path) {
-                        out.push(inst);
-                    }
-                }
+            if bin.is_file()
+                && let Some(inst) = JavaInstall::probe(&bin)
+                && !out.iter().any(|i| i.path == inst.path)
+            {
+                out.push(inst);
             }
         }
     }
@@ -115,9 +113,18 @@ pub fn major_version(version: &str) -> u32 {
 /// Best-effort mapping from a Minecraft version to its required Java major.
 pub fn heuristic_major(mc_version: &str) -> u32 {
     let mut parts = mc_version.split(['.', '-', '+']);
-    let a = parts.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-    let b = parts.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-    let c = parts.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+    let a = parts
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+    let b = parts
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+    let c = parts
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
     if a != 1 {
         // New-style versions (e.g. 26.1) track modern Java.
         return 21;
@@ -159,8 +166,7 @@ pub fn select_java(data_root: &Path, required_major: u32) -> Option<JavaInstall>
 
 // ---- Automatic Java runtime download (Mojang java-runtime CDN) ----
 
-const RUNTIMES_INDEX: &str =
-    "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
+const RUNTIMES_INDEX: &str = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
 fn os_key() -> &'static str {
     if cfg!(target_os = "windows") {
@@ -171,8 +177,6 @@ fn os_key() -> &'static str {
         } else {
             "mac-os"
         }
-    } else if cfg!(target_arch = "aarch64") {
-        "linux"
     } else {
         "linux"
     }
@@ -180,11 +184,7 @@ fn os_key() -> &'static str {
 
 /// Download a Mojang Java runtime matching `major` into `<data_root>/java/<name>`.
 /// Returns the path to the `java` binary.
-pub fn download_runtime(
-    data_root: &Path,
-    component: &str,
-    major: &str,
-) -> Result<PathBuf, String> {
+pub fn download_runtime(data_root: &Path, component: &str, major: &str) -> Result<PathBuf, String> {
     let body = crate::net::get_string(RUNTIMES_INDEX)?;
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let platform = json
@@ -253,13 +253,20 @@ pub fn download_runtime(
         }
         Ok(bin)
     } else {
-        Err(format!("runtime downloaded but java binary missing: {}", bin.display()))
+        Err(format!(
+            "runtime downloaded but java binary missing: {}",
+            bin.display()
+        ))
     }
 }
 
 /// Ensure a Java runtime for `major` exists (download if needed).
 pub fn ensure_runtime(data_root: &Path, component: &str, major: &str) -> Result<PathBuf, String> {
-    let bin = data_root.join("java").join(component).join("bin").join("java");
+    let bin = data_root
+        .join("java")
+        .join(component)
+        .join("bin")
+        .join("java");
     if bin.is_file() {
         return Ok(bin);
     }

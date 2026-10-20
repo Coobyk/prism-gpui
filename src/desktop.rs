@@ -6,11 +6,15 @@ use std::path::Path;
 pub fn open_path(path: &Path) -> Result<(), String> {
     let path_str = path.to_string_lossy().to_string();
     let result = if cfg!(target_os = "windows") {
-        std::process::Command::new("explorer").arg(&path_str).spawn()
+        std::process::Command::new("explorer")
+            .arg(&path_str)
+            .spawn()
     } else if cfg!(target_os = "macos") {
         std::process::Command::new("open").arg(&path_str).spawn()
     } else {
-        std::process::Command::new("xdg-open").arg(&path_str).spawn()
+        std::process::Command::new("xdg-open")
+            .arg(&path_str)
+            .spawn()
     };
     result.map(|_| ()).map_err(|e| e.to_string())
 }
@@ -20,21 +24,14 @@ pub fn open_url(url: &str) -> Result<(), String> {
     open_path(Path::new(url))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn open_missing_program_is_err_not_panic() {
-        // Passing a bogus path should not panic; result may be Ok(spawn) or Err.
-        let _ = open_path(Path::new("/nonexistent/xyz"));
-    }
-}
-
 /// Create a shortcut that launches an instance.
 ///
 /// On Linux a `.desktop` file is written to the desktop and to the
 /// applications menu. The other platforms are not supported yet.
-pub fn create_shortcut(instance: &str, data_root: &std::path::Path) -> Result<std::path::PathBuf, String> {
+pub fn create_shortcut(
+    instance: &str,
+    data_root: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
     #[cfg(target_os = "linux")]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -90,6 +87,22 @@ pub fn create_shortcut(instance: &str, data_root: &std::path::Path) -> Result<st
 /// Turn a name into something that can be used in a file name.
 fn sanitize(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn open_missing_program_is_err_not_panic() {
+        // Passing a bogus path should not panic; result may be Ok(spawn) or Err.
+        let _ = open_path(Path::new("/nonexistent/xyz"));
+    }
 }

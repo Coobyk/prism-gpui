@@ -77,7 +77,12 @@ fn urlencoding(s: &str) -> String {
 }
 
 fn ureq_get(url: &str) -> Result<String, ()> {
-    crate::net::agent().get(url).call().map_err(|_| ())?.into_string().map_err(|_| ())
+    crate::net::agent()
+        .get(url)
+        .call()
+        .map_err(|_| ())?
+        .into_string()
+        .map_err(|_| ())
 }
 
 #[derive(Deserialize)]
@@ -125,7 +130,10 @@ pub struct Hashes {
 impl VersionInfo {
     /// The primary file, falling back to the first listed.
     pub fn primary_file(&self) -> Option<&VersionFile> {
-        self.files.iter().find(|f| f.primary).or_else(|| self.files.first())
+        self.files
+            .iter()
+            .find(|f| f.primary)
+            .or_else(|| self.files.first())
     }
 }
 
@@ -181,9 +189,7 @@ impl Modrinth {
 
     /// Look up a project + version from a local file's sha1 hash.
     pub fn version_from_hash(&self, sha1: &str) -> Result<VersionInfo, String> {
-        let url = format!(
-            "https://api.modrinth.com/v2/version_file/{sha1}?algorithm=sha1"
-        );
+        let url = format!("https://api.modrinth.com/v2/version_file/{sha1}?algorithm=sha1");
         let body = crate::net::get_string(&url)?;
         serde_json::from_str(&body).map_err(|e| e.to_string())
     }

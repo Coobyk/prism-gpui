@@ -299,7 +299,7 @@ impl InstanceView {
     fn toggle_mod(&mut self, file: &str) {
         let dir = self.current_dir().join(file);
         let target = if file.ends_with(".disabled") {
-            dir.with_file_name(file.trim_end_matches(".disabled").to_string())
+            dir.with_file_name(file.trim_end_matches(".disabled"))
         } else {
             dir.with_file_name(format!("{file}.disabled"))
         };
@@ -335,9 +335,14 @@ impl InstanceView {
             .collect();
         lines.push(resource_pack);
         lines.push(shader);
-        let _ = std::fs::write(&options, lines.join("
-") + "
-");
+        let _ = std::fs::write(
+            &options,
+            lines.join(
+                "
+",
+            ) + "
+",
+        );
     }
 
     /// The first file in a folder that is not disabled.
@@ -485,12 +490,7 @@ impl InstanceView {
                             .child(self.status.clone()),
                     ),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .p_3()
-                    .child(self.notes_input.clone()),
-            )
+            .child(div().flex_1().p_3().child(self.notes_input.clone()))
             .into_any_element()
     }
 
@@ -624,10 +624,7 @@ impl InstanceView {
         let name = self.name.to_string();
         let version = self.mc_version();
         let dir = self.dir.clone();
-        let rx = cx.prompt_for_new_path(
-            std::path::Path::new(""),
-            Some(&format!("{name}.mrpack")),
-        );
+        let rx = cx.prompt_for_new_path(std::path::Path::new(""), Some(&format!("{name}.mrpack")));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
                 let result = crate::pack::mrpack::export(&dir, &path, &name, &version);
@@ -675,9 +672,7 @@ impl InstanceView {
         }
         cx.notify();
     }
-
 }
-
 
 impl Render for InstanceView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -715,32 +710,21 @@ impl Render for InstanceView {
                     })
                     .hover(|style| style.bg(rgb(theme.alternate)))
                     // The 24 pixel page icon Prism shows.
-                    .child(
-                        div()
-                            .w(px(24.))
-                            .h(px(24.))
-                            .rounded_md()
-                            .bg(if selected {
-                                rgb(theme.on_accent)
-                            } else {
-                                rgb(theme.alternate)
-                            }),
-                    )
+                    .child(div().w(px(24.)).h(px(24.)).rounded_md().bg(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.alternate)
+                    }))
                     .child(div().text_sm().child(t.label()))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.tab = t2;
                         if t2 == Tab::Notes {
                             this.load_notes(cx);
                         }
-                        if t2 == Tab::Settings {
-                            if let Some(inst) = crate::instance::Instance::load(&this.dir) {
-                                crate::ui::open_instance_settings(
-                                    this.dir.clone(),
-                                    inst,
-                                    theme,
-                                    cx,
-                                );
-                            }
+                        if t2 == Tab::Settings
+                            && let Some(inst) = crate::instance::Instance::load(&this.dir)
+                        {
+                            crate::ui::open_instance_settings(this.dir.clone(), inst, theme, cx);
                         }
                         this.refresh();
                         cx.notify();
@@ -767,28 +751,31 @@ impl Render for InstanceView {
                         .child(crate::i18n::tr("(empty)"))
                         .into_any_element()
                 } else {
-                    uniform_list("instance-entries", entries.len(), move |range, _window, _cx| {
-                        range
-                            .filter_map(|i| {
-                                let entry = entries.get(i)?.clone();
-                                Some(entry_row(
-                                    entry,
-                                    i,
-                                    i == selected,
-                                    tab,
-                                    theme,
-                                    entity.clone(),
-                                ))
-                            })
-                            .collect::<Vec<_>>()
-                    })
+                    uniform_list(
+                        "instance-entries",
+                        entries.len(),
+                        move |range, _window, _cx| {
+                            range
+                                .filter_map(|i| {
+                                    let entry = entries.get(i)?.clone();
+                                    Some(entry_row(
+                                        entry,
+                                        i,
+                                        i == selected,
+                                        tab,
+                                        theme,
+                                        entity.clone(),
+                                    ))
+                                })
+                                .collect::<Vec<_>>()
+                        },
+                    )
                     .track_scroll(self.scroll.clone())
                     .flex_1()
                     .into_any_element()
                 }
             }
         };
-
 
         div()
             .flex()
@@ -797,36 +784,40 @@ impl Render for InstanceView {
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(move |this: &mut Self, ev: &KeyDownEvent, _window, cx| {
-                match ev.keystroke.key.as_str() {
-                    "up" => this.move_selection(-1, cx),
-                    "down" => this.move_selection(1, cx),
-                    "left" => this.cycle_tab(-1, cx),
-                    "right" => this.cycle_tab(1, cx),
-                    "enter" => this.activate_selected(cx),
-                    "l" => {
-                        let java = crate::java::ensure_for_instance(&this.data_root, &this.dir);
-                        if let Ok(java) = java {
-                            let account =
-                                crate::accounts::account_for_instance(&this.data_root, &this.dir);
-                            if let Some(profile) = crate::launch::build_profile_with_account(
-                                &this.dir,
-                                &this.data_root,
-                                &java,
-                                account.as_ref(),
-                            ) {
-                                crate::console::open_console(
-                                    profile,
-                                    this.name.to_string(),
-                                    theme,
-                                    cx,
+            .on_key_down(
+                cx.listener(move |this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                    match ev.keystroke.key.as_str() {
+                        "up" => this.move_selection(-1, cx),
+                        "down" => this.move_selection(1, cx),
+                        "left" => this.cycle_tab(-1, cx),
+                        "right" => this.cycle_tab(1, cx),
+                        "enter" => this.activate_selected(cx),
+                        "l" => {
+                            let java = crate::java::ensure_for_instance(&this.data_root, &this.dir);
+                            if let Ok(java) = java {
+                                let account = crate::accounts::account_for_instance(
+                                    &this.data_root,
+                                    &this.dir,
                                 );
+                                if let Some(profile) = crate::launch::build_profile_with_account(
+                                    &this.dir,
+                                    &this.data_root,
+                                    &java,
+                                    account.as_ref(),
+                                ) {
+                                    crate::console::open_console(
+                                        profile,
+                                        this.name.to_string(),
+                                        theme,
+                                        cx,
+                                    );
+                                }
                             }
                         }
+                        _ => {}
                     }
-                    _ => {}
-                }
-            }))
+                }),
+            )
             // ---- the page list and the page content -----------------------
             .child(
                 div()
@@ -983,10 +974,16 @@ impl Render for InstanceView {
                             .border_color(rgb(theme.border))
                             .child(crate::i18n::tr("Help"))
                             .on_click(cx.listener(move |_, _, _, _cx| {
-                                crate::desktop::open_url("https://prismlauncher.org/wiki/");
+                                let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
                             })),
                     )
-                    .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    )
                     .child(
                         div()
                             .id("instance-launch")
@@ -1105,7 +1102,11 @@ fn entry_row(
         .py_1()
         .border_b_1()
         .border_color(rgb(theme.border))
-        .bg(if selected { rgb(theme.surface) } else { rgb(theme.background) })
+        .bg(if selected {
+            rgb(theme.surface)
+        } else {
+            rgb(theme.background)
+        })
         .child(label);
     if tab == Tab::Mods && !entry.ends_with('/') {
         let file = entry.clone();
@@ -1133,7 +1134,13 @@ fn entry_row(
 }
 
 /// Open a new window showing an instance's contents.
-pub fn open_instance(name: &str, dir: &Path, data_root: &Path, theme: Theme, cx: &mut App) -> Option<gpui::WindowHandle<InstanceView>> {
+pub fn open_instance(
+    name: &str,
+    dir: &Path,
+    data_root: &Path,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<InstanceView>> {
     let name = name.to_string();
     let dir = dir.to_path_buf();
     let data_root = data_root.to_path_buf();
@@ -1308,10 +1315,7 @@ impl NewInstanceView {
             this.update(cx, |this, cx| {
                 match result {
                     Ok(hits) => {
-                        this.hits = hits
-                            .into_iter()
-                            .map(|h| (h.title, h.id, h.slug))
-                            .collect();
+                        this.hits = hits.into_iter().map(|h| (h.title, h.id, h.slug)).collect();
                         this.status = format!("{} results", this.hits.len()).into();
                     }
                     Err(e) => this.status = format!("Search failed: {e}").into(),
@@ -1341,7 +1345,13 @@ impl NewInstanceView {
                     let instances_root = crate::instance::instances_dir(&root);
                     let dir_name = slug
                         .chars()
-                        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+                        .map(|c| {
+                            if c.is_ascii_alphanumeric() || c == '-' {
+                                c
+                            } else {
+                                '_'
+                            }
+                        })
                         .collect::<String>();
                     let inst_dir = instances_root.join(&dir_name);
                     if inst_dir.exists() {
@@ -1364,12 +1374,7 @@ impl NewInstanceView {
                         downloads: 0,
                         extra: String::new(),
                     };
-                    match crate::modplatform::platform::install(
-                        &hit,
-                        &inst_dir,
-                        None,
-                        None,
-                    ) {
+                    match crate::modplatform::platform::install(&hit, &inst_dir, None, None) {
                         Ok(outcome) => {
                             for (uid, version) in &outcome.components {
                                 let _ = crate::meta::set_component(&inst_dir, uid, version);
@@ -1397,7 +1402,10 @@ impl Render for NewInstanceView {
             self.focus.focus(window);
             self.auto_focused = true;
         }
-        let page_name = NEW_INSTANCE_PAGES.get(self.page).copied().unwrap_or("Custom");
+        let page_name = NEW_INSTANCE_PAGES
+            .get(self.page)
+            .copied()
+            .unwrap_or("Custom");
 
         // The page list on the left, like Prism's new instance dialog.
         let pages: Vec<AnyElement> = NEW_INSTANCE_PAGES
@@ -1406,7 +1414,9 @@ impl Render for NewInstanceView {
             .map(|(i, p)| {
                 let selected = i == self.page;
                 div()
-                    .id(gpui::ElementId::Name(SharedString::from(format!("new-page-{p}"))))
+                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                        "new-page-{p}"
+                    ))))
                     .flex()
                     .items_center()
                     .gap_2()
@@ -1424,17 +1434,11 @@ impl Render for NewInstanceView {
                         rgb(theme.text)
                     })
                     .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(
-                        div()
-                            .w(px(24.))
-                            .h(px(24.))
-                            .rounded_md()
-                            .bg(if selected {
-                                rgb(theme.on_accent)
-                            } else {
-                                rgb(theme.alternate)
-                            }),
-                    )
+                    .child(div().w(px(24.)).h(px(24.)).rounded_md().bg(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.alternate)
+                    }))
                     .child(div().text_sm().child(crate::i18n::tr(p)))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.page = i;
@@ -1486,13 +1490,9 @@ impl Render for NewInstanceView {
                 .flex_col()
                 .gap_3()
                 .p_4()
-                .child(
-                    div()
-                        .text_sm()
-                        .child(crate::i18n::tr(
-                            "Import a .mrpack, a CurseForge pack or a Prism instance archive.",
-                        )),
-                )
+                .child(div().text_sm().child(crate::i18n::tr(
+                    "Import a .mrpack, a CurseForge pack or a Prism instance archive.",
+                )))
                 .child(
                     div()
                         .id("import-instance")
@@ -1582,9 +1582,9 @@ impl Render for NewInstanceView {
                                     .text_color(rgb(theme.on_accent))
                                     .cursor_pointer()
                                     .child(crate::i18n::tr("Search"))
-                                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
-                                        this.search(cx)
-                                    })),
+                                    .on_click(
+                                        cx.listener(|this: &mut Self, _, _, cx| this.search(cx)),
+                                    ),
                             ),
                     )
                     .child(list)
@@ -1599,20 +1599,22 @@ impl Render for NewInstanceView {
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
-                let pages = NEW_INSTANCE_PAGES;
-                match ev.keystroke.key.as_str() {
-                    "left" => {
-                        this.page = (this.page + pages.len() - 1) % pages.len();
-                        cx.notify();
+            .on_key_down(
+                cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                    let pages = NEW_INSTANCE_PAGES;
+                    match ev.keystroke.key.as_str() {
+                        "left" => {
+                            this.page = (this.page + pages.len() - 1) % pages.len();
+                            cx.notify();
+                        }
+                        "right" => {
+                            this.page = (this.page + 1) % pages.len();
+                            cx.notify();
+                        }
+                        _ => {}
                     }
-                    "right" => {
-                        this.page = (this.page + 1) % pages.len();
-                        cx.notify();
-                    }
-                    _ => {}
-                }
-            }))
+                }),
+            )
             .child(
                 div()
                     .flex()
@@ -1699,12 +1701,7 @@ pub struct RenameInstanceView {
 }
 
 impl RenameInstanceView {
-    pub fn new(
-        data_root: PathBuf,
-        old_name: String,
-        theme: Theme,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(data_root: PathBuf, old_name: String, theme: Theme, cx: &mut Context<Self>) -> Self {
         let name_input = cx.new(|cx| {
             let mut t = TextInput::new("Instance name", cx);
             t.set_text(old_name.clone(), cx);
@@ -1764,7 +1761,12 @@ impl Render for RenameInstanceView {
                     .child(crate::i18n::tr("Rename"))
                     .on_click(cx.listener(|this: &mut Self, _, _, cx| this.rename(cx))),
             )
-            .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(theme.subtext))
+                    .child(self.status.clone()),
+            )
     }
 }
 
@@ -1786,9 +1788,7 @@ pub fn open_rename_instance(
             ..Default::default()
         },
         move |_, cx| {
-            cx.new(|cx| {
-                RenameInstanceView::new(data_root.clone(), name.clone(), theme, cx)
-            })
+            cx.new(|cx| RenameInstanceView::new(data_root.clone(), name.clone(), theme, cx))
         },
     )
     .ok()
@@ -1816,7 +1816,7 @@ pub fn open_new_instance(
 
 // ---- Settings window ----
 
-use crate::settings::{GlobalSettings, ValueKind, SETTINGS, pages};
+use crate::settings::{GlobalSettings, SETTINGS, ValueKind};
 
 pub struct SettingsView {
     settings: GlobalSettings,
@@ -1868,7 +1868,12 @@ impl SettingsView {
     }
 
     /// Cycle an enum setting through its allowed values.
-    fn cycle_enum(&mut self, key: &'static str, options: &'static [&'static str], cx: &mut Context<Self>) {
+    fn cycle_enum(
+        &mut self,
+        key: &'static str,
+        options: &'static [&'static str],
+        cx: &mut Context<Self>,
+    ) {
         if options.is_empty() {
             return;
         }
@@ -1897,16 +1902,16 @@ impl SettingsView {
             prompt: Some("Select a path".into()),
         });
         cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.first() {
-                    let text = path.display().to_string();
-                    this.update(cx, |this, cx| {
-                        this.settings.set(key, &text);
-                        this.sync_input(key, &text, cx);
-                        cx.notify();
-                    })
-                    .ok();
-                }
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.first()
+            {
+                let text = path.display().to_string();
+                this.update(cx, |this, cx| {
+                    this.settings.set(key, &text);
+                    this.sync_input(key, &text, cx);
+                    cx.notify();
+                })
+                .ok();
             }
         })
         .detach();
@@ -1971,17 +1976,11 @@ impl Render for SettingsView {
                         rgb(theme.text)
                     })
                     .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(
-                        div()
-                            .w(px(24.))
-                            .h(px(24.))
-                            .rounded_md()
-                            .bg(if selected {
-                                rgb(theme.on_accent)
-                            } else {
-                                rgb(theme.alternate)
-                            }),
-                    )
+                    .child(div().w(px(24.)).h(px(24.)).rounded_md().bg(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.alternate)
+                    }))
                     .child(div().text_sm().child(crate::i18n::tr(p)))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.page = i;
@@ -2053,10 +2052,7 @@ impl Render for SettingsView {
                                     .gap_1()
                                     .child(div().text_sm().child(version))
                                     .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(rgb(theme.subtext))
-                                            .child(path),
+                                        div().text_xs().text_color(rgb(theme.subtext)).child(path),
                                     ),
                             )
                             .child(
@@ -2076,8 +2072,7 @@ impl Render for SettingsView {
                                         let path = path_use.clone();
                                         java_entity.update(cx, |this, cx| {
                                             this.settings.set("JavaPath", &path);
-                                            this.status =
-                                                format!("Using {path}").into();
+                                            this.status = format!("Using {path}").into();
                                             cx.notify();
                                         });
                                     }),
@@ -2109,20 +2104,22 @@ impl Render for SettingsView {
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
-                let pages = crate::settings::PAGES;
-                match ev.keystroke.key.as_str() {
-                    "left" => {
-                        this.page = (this.page + pages.len() - 1) % pages.len();
-                        cx.notify();
+            .on_key_down(
+                cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                    let pages = crate::settings::PAGES;
+                    match ev.keystroke.key.as_str() {
+                        "left" => {
+                            this.page = (this.page + pages.len() - 1) % pages.len();
+                            cx.notify();
+                        }
+                        "right" => {
+                            this.page = (this.page + 1) % pages.len();
+                            cx.notify();
+                        }
+                        _ => {}
                     }
-                    "right" => {
-                        this.page = (this.page + 1) % pages.len();
-                        cx.notify();
-                    }
-                    _ => {}
-                }
-            }))
+                }),
+            )
             // The page list and the page content.
             .child(
                 div()
@@ -2236,25 +2233,34 @@ fn settings_row(
     entity: Entity<SettingsView>,
 ) -> AnyElement {
     use crate::settings::ValueKind;
-    let label = div()
-        .w(px(240.))
-        .flex_shrink_0()
-        .text_sm()
-        .child(def.label);
+    let label = div().w(px(240.)).flex_shrink_0().text_sm().child(def.label);
     let key = def.key;
     let control: AnyElement = match def.kind {
         ValueKind::Bool => {
-            let on = matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on");
+            let on = matches!(
+                value.to_ascii_lowercase().as_str(),
+                "true" | "1" | "yes" | "on"
+            );
             let e = entity.clone();
             div()
-                .id(gpui::ElementId::Name(SharedString::from(format!("bool-{key}"))))
+                .id(gpui::ElementId::Name(SharedString::from(format!(
+                    "bool-{key}"
+                ))))
                 .px_3()
                 .py_1()
                 .w(px(80.))
                 .rounded_md()
                 .cursor_pointer()
-                .bg(if on { rgb(theme.accent) } else { rgb(theme.surface) })
-                .text_color(if on { rgb(theme.on_accent) } else { rgb(theme.text) })
+                .bg(if on {
+                    rgb(theme.accent)
+                } else {
+                    rgb(theme.surface)
+                })
+                .text_color(if on {
+                    rgb(theme.on_accent)
+                } else {
+                    rgb(theme.text)
+                })
                 .border_1()
                 .border_color(rgb(theme.border))
                 .child(if on { "On" } else { "Off" })
@@ -2271,7 +2277,9 @@ fn settings_row(
             };
             let e = entity.clone();
             div()
-                .id(gpui::ElementId::Name(SharedString::from(format!("enum-{key}"))))
+                .id(gpui::ElementId::Name(SharedString::from(format!(
+                    "enum-{key}"
+                ))))
                 .px_3()
                 .py_1()
                 .w(px(180.))
@@ -2289,7 +2297,9 @@ fn settings_row(
         ValueKind::Path => {
             let e = entity.clone();
             let browse = div()
-                .id(gpui::ElementId::Name(SharedString::from(format!("browse-{key}"))))
+                .id(gpui::ElementId::Name(SharedString::from(format!(
+                    "browse-{key}"
+                ))))
                 .px_2()
                 .py_1()
                 .rounded_md()
@@ -2301,9 +2311,7 @@ fn settings_row(
                 .on_click(move |_, _, cx| {
                     // A Java binary is a file; every other path setting is a
                     // directory (instance dir, icons dir, ...).
-                    e.update(cx, |this, cx| {
-                        this.browse_path(key, key != "JavaPath", cx)
-                    });
+                    e.update(cx, |this, cx| this.browse_path(key, key != "JavaPath", cx));
                 });
             let mut row = div().flex().items_center().gap_2().w(px(420.));
             if let Some(input) = input {
@@ -2317,7 +2325,9 @@ fn settings_row(
         },
     };
     div()
-        .id(gpui::ElementId::Name(SharedString::from(format!("setting-{key}"))))
+        .id(gpui::ElementId::Name(SharedString::from(format!(
+            "setting-{key}"
+        ))))
         .flex()
         .items_center()
         .gap_3()
@@ -2353,9 +2363,7 @@ pub fn open_settings(
             }),
             ..Default::default()
         },
-        move |_, cx| {
-            cx.new(|cx| SettingsView::new(settings, data_root.clone(), theme, cx))
-        },
+        move |_, cx| cx.new(|cx| SettingsView::new(settings, data_root.clone(), theme, cx)),
     )
     .ok()
 }
@@ -2377,7 +2385,12 @@ pub struct InstanceSettingsView {
 }
 
 impl InstanceSettingsView {
-    pub fn new(dir: PathBuf, instance: &crate::instance::Instance, theme: Theme, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        dir: PathBuf,
+        instance: &crate::instance::Instance,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut settings = instance.settings.clone();
         // Seed the defaults for known keys so the fields show sensible values.
         for def in crate::settings::INSTANCE_SETTINGS {
@@ -2425,18 +2438,18 @@ impl InstanceSettingsView {
             prompt: Some("Select a path".into()),
         });
         cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.first() {
-                    let text = path.display().to_string();
-                    this.update(cx, |this, cx| {
-                        this.settings.insert(key.to_string(), text.clone());
-                        if let Some((_, input)) = this.inputs.iter().find(|(d, _)| d.key == key) {
-                            input.update(cx, |t, cx| t.set_text(text.clone(), cx));
-                        }
-                        cx.notify();
-                    })
-                    .ok();
-                }
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.first()
+            {
+                let text = path.display().to_string();
+                this.update(cx, |this, cx| {
+                    this.settings.insert(key.to_string(), text.clone());
+                    if let Some((_, input)) = this.inputs.iter().find(|(d, _)| d.key == key) {
+                        input.update(cx, |t, cx| t.set_text(text.clone(), cx));
+                    }
+                    cx.notify();
+                })
+                .ok();
             }
         })
         .detach();
@@ -2467,11 +2480,16 @@ impl InstanceSettingsView {
 
     fn toggle_bool(&mut self, key: &'static str, cx: &mut Context<Self>) {
         let current = matches!(
-            self.settings.get(key).map(|s| s.as_str()).unwrap_or("false"),
+            self.settings
+                .get(key)
+                .map(|s| s.as_str())
+                .unwrap_or("false"),
             "true" | "1" | "yes" | "on"
         );
-        self.settings
-            .insert(key.to_string(), if current { "false" } else { "true" }.into());
+        self.settings.insert(
+            key.to_string(),
+            if current { "false" } else { "true" }.into(),
+        );
         cx.notify();
     }
 }
@@ -2497,8 +2515,16 @@ impl Render for InstanceSettingsView {
                     .py_1()
                     .rounded_md()
                     .cursor_pointer()
-                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.surface) })
-                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
+                    .bg(if selected {
+                        rgb(theme.accent)
+                    } else {
+                        rgb(theme.surface)
+                    })
+                    .text_color(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.text)
+                    })
                     .child(*p)
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.page = i;
@@ -2527,14 +2553,24 @@ impl Render for InstanceSettingsView {
             })
             .collect();
         let entity = cx.entity();
-        let list = uniform_list("instance-settings", rows.len(), move |range, _window, _cx| {
-            range
-                .filter_map(|i| {
-                    let (def, input, value) = rows.get(i)?.clone();
-                    Some(instance_setting_row(def, input, value, theme, entity.clone()))
-                })
-                .collect::<Vec<_>>()
-        })
+        let list = uniform_list(
+            "instance-settings",
+            rows.len(),
+            move |range, _window, _cx| {
+                range
+                    .filter_map(|i| {
+                        let (def, input, value) = rows.get(i)?.clone();
+                        Some(instance_setting_row(
+                            def,
+                            input,
+                            value,
+                            theme,
+                            entity.clone(),
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+            },
+        )
         .track_scroll(self.scroll.clone())
         .flex_1();
 
@@ -2545,20 +2581,22 @@ impl Render for InstanceSettingsView {
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
-                let pages = crate::settings::instance_pages();
-                match ev.keystroke.key.as_str() {
-                    "left" => {
-                        this.page = (this.page + pages.len() - 1) % pages.len();
-                        cx.notify();
+            .on_key_down(
+                cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                    let pages = crate::settings::instance_pages();
+                    match ev.keystroke.key.as_str() {
+                        "left" => {
+                            this.page = (this.page + pages.len() - 1) % pages.len();
+                            cx.notify();
+                        }
+                        "right" => {
+                            this.page = (this.page + 1) % pages.len();
+                            cx.notify();
+                        }
+                        _ => {}
                     }
-                    "right" => {
-                        this.page = (this.page + 1) % pages.len();
-                        cx.notify();
-                    }
-                    _ => {}
-                }
-            }))
+                }),
+            )
             .child(
                 div()
                     .flex()
@@ -2613,11 +2651,7 @@ fn instance_setting_row(
     entity: Entity<InstanceSettingsView>,
 ) -> AnyElement {
     use crate::settings::ValueKind;
-    let label = div()
-        .w(px(240.))
-        .flex_shrink_0()
-        .text_sm()
-        .child(def.label);
+    let label = div().w(px(240.)).flex_shrink_0().text_sm().child(def.label);
     let control: AnyElement = match def.kind {
         ValueKind::Bool => {
             let on = matches!(
@@ -2627,14 +2661,24 @@ fn instance_setting_row(
             let key = def.key;
             let e = entity.clone();
             div()
-                .id(gpui::ElementId::Name(SharedString::from(format!("bool-{key}"))))
+                .id(gpui::ElementId::Name(SharedString::from(format!(
+                    "bool-{key}"
+                ))))
                 .px_3()
                 .py_1()
                 .w(px(80.))
                 .rounded_md()
                 .cursor_pointer()
-                .bg(if on { rgb(theme.accent) } else { rgb(theme.surface) })
-                .text_color(if on { rgb(theme.on_accent) } else { rgb(theme.text) })
+                .bg(if on {
+                    rgb(theme.accent)
+                } else {
+                    rgb(theme.surface)
+                })
+                .text_color(if on {
+                    rgb(theme.on_accent)
+                } else {
+                    rgb(theme.text)
+                })
                 .border_1()
                 .border_color(rgb(theme.border))
                 .child(if on { "On" } else { "Off" })
@@ -2647,7 +2691,9 @@ fn instance_setting_row(
             let e = entity.clone();
             let key = def.key;
             let browse = div()
-                .id(gpui::ElementId::Name(SharedString::from(format!("browse-{key}"))))
+                .id(gpui::ElementId::Name(SharedString::from(format!(
+                    "browse-{key}"
+                ))))
                 .px_2()
                 .py_1()
                 .rounded_md()
@@ -2809,7 +2855,14 @@ impl Render for NewsView {
                             .child(self.status.clone()),
                     ),
             )
-            .child(div().flex_1().flex().flex_col().overflow_hidden().children(items))
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .children(items),
+            )
     }
 }
 
@@ -2911,8 +2964,16 @@ impl Render for ScreenshotView {
                     .px_2()
                     .py_1()
                     .cursor_pointer()
-                    .bg(if is_sel { rgb(theme.accent) } else { rgb(theme.surface) })
-                    .text_color(if is_sel { rgb(theme.on_accent) } else { rgb(theme.text) })
+                    .bg(if is_sel {
+                        rgb(theme.accent)
+                    } else {
+                        rgb(theme.surface)
+                    })
+                    .text_color(if is_sel {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.text)
+                    })
                     .child(name)
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.selected = Some(i);
@@ -2936,7 +2997,11 @@ impl Render for ScreenshotView {
                 .items_center()
                 .justify_center()
                 .text_color(rgb(theme.subtext))
-                .child(if count == 0 { "No screenshots" } else { "Select a screenshot" })
+                .child(if count == 0 {
+                    "No screenshots"
+                } else {
+                    "Select a screenshot"
+                })
                 .into_any_element(),
         };
 
@@ -3052,8 +3117,7 @@ impl SkinView {
                 this.update(cx, |this, cx| {
                     match result {
                         Ok(bytes) => {
-                            this.image =
-                                Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes)));
+                            this.image = Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes)));
                             this.status = "Loaded".into();
                         }
                         Err(e) => this.status = format!("Failed: {e}").into(),
@@ -3255,7 +3319,6 @@ impl SkinView {
     }
 }
 
-
 impl SkinView {
     /// Reload the account's skin list from Mojang.
     fn refresh_mojang_skins(&mut self, cx: &mut Context<Self>) {
@@ -3370,20 +3433,20 @@ impl SkinView {
             prompt: Some("Select a skin texture".into()),
         });
         cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await {
-                if let Some(path) = paths.first() {
-                    let path = path.clone();
-                    this.update(cx, |this, cx| {
-                        match crate::skin::validate_skin_file(&path) {
-                            Ok(_) => this.upload(path, cx),
-                            Err(e) => {
-                                this.status = format!("Not a valid skin: {e}").into();
-                                cx.notify();
-                            }
+            if let Ok(Ok(Some(paths))) = rx.await
+                && let Some(path) = paths.first()
+            {
+                let path = path.clone();
+                this.update(cx, |this, cx| {
+                    match crate::skin::validate_skin_file(&path) {
+                        Ok(_) => this.upload(path, cx),
+                        Err(e) => {
+                            this.status = format!("Not a valid skin: {e}").into();
+                            cx.notify();
                         }
-                    })
-                    .ok();
-                }
+                    }
+                })
+                .ok();
             }
         })
         .detach();
@@ -3546,16 +3609,13 @@ impl Render for SkinView {
                                 .flex()
                                 .flex_col()
                                 .child(div().text_sm().child(id.clone()))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(rgb(theme.subtext))
-                                        .child(format!(
-                                            "{} · {}",
-                                            skin.state,
-                                            skin.variant.unwrap_or_default()
-                                        )),
-                                ),
+                                .child(div().text_xs().text_color(rgb(theme.subtext)).child(
+                                    format!(
+                                        "{} · {}",
+                                        skin.state,
+                                        skin.variant.unwrap_or_default()
+                                    ),
+                                )),
                         )
                         .child(
                             div()
@@ -3859,7 +3919,9 @@ impl Render for GroupView {
                 let entity_rename = entity.clone();
                 let entity_delete = entity.clone();
                 div()
-                    .id(gpui::ElementId::Name(SharedString::from(format!("group-{name}"))))
+                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                        "group-{name}"
+                    ))))
                     .flex()
                     .items_center()
                     .justify_between()
@@ -3908,9 +3970,8 @@ impl Render for GroupView {
                                     .child(if is_current { "Current" } else { "Use" })
                                     .on_click(move |_, _, cx| {
                                         let name = name_use.clone();
-                                        entity_use.update(cx, |this, cx| {
-                                            this.assign(Some(name), cx)
-                                        });
+                                        entity_use
+                                            .update(cx, |this, cx| this.assign(Some(name), cx));
                                     }),
                             )
                             .child(
@@ -3930,9 +3991,8 @@ impl Render for GroupView {
                                         let name = name_rename.clone();
                                         entity_rename.update(cx, |this, cx| {
                                             this.renaming = Some(name.clone());
-                                            this.name_input.update(cx, |t, cx| {
-                                                t.set_text(name, cx)
-                                            });
+                                            this.name_input
+                                                .update(cx, |t, cx| t.set_text(name, cx));
                                             cx.notify();
                                         });
                                     }),
@@ -3952,9 +4012,7 @@ impl Render for GroupView {
                                     .child("Delete")
                                     .on_click(move |_, _, cx| {
                                         let name = name_delete.clone();
-                                        entity_delete.update(cx, |this, cx| {
-                                            this.delete(&name, cx)
-                                        });
+                                        entity_delete.update(cx, |this, cx| this.delete(&name, cx));
                                     }),
                             ),
                     )
@@ -4047,9 +4105,9 @@ impl Render for GroupView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .child(crate::i18n::tr("No group"))
-                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
-                                this.assign(None, cx)
-                            })),
+                            .on_click(
+                                cx.listener(|this: &mut Self, _, _, cx| this.assign(None, cx)),
+                            ),
                     )
                     .child(
                         div()
@@ -4184,7 +4242,12 @@ impl Render for RenameWorldView {
                     .child(crate::i18n::tr("Rename"))
                     .on_click(cx.listener(|this: &mut Self, _, _, cx| this.rename(cx))),
             )
-            .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(theme.subtext))
+                    .child(self.status.clone()),
+            )
     }
 }
 
@@ -4352,15 +4415,11 @@ impl Render for AccountsView {
                             .flex()
                             .flex_col()
                             .gap_1()
-                            .child(
-                                div()
-                                    .text_base()
-                                    .child(if is_active {
-                                        format!("{} (active)", account.username)
-                                    } else {
-                                        account.username.clone()
-                                    }),
-                            )
+                            .child(div().text_base().child(if is_active {
+                                format!("{} (active)", account.username)
+                            } else {
+                                account.username.clone()
+                            }))
                             .child(
                                 div()
                                     .text_xs()
@@ -4505,11 +4564,13 @@ impl Render for ServersView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let rows: Vec<_> = if self.servers.is_empty() {
-            vec![div()
-                .p_3()
-                .text_color(rgb(theme.subtext))
-                .child("(no servers)")
-                .into_any_element()]
+            vec![
+                div()
+                    .p_3()
+                    .text_color(rgb(theme.subtext))
+                    .child("(no servers)")
+                    .into_any_element(),
+            ]
         } else {
             self.servers
                 .iter()
@@ -4545,7 +4606,14 @@ impl Render for ServersView {
                     .border_color(rgb(theme.border))
                     .child(format!("Servers ({})", self.servers.len())),
             )
-            .child(div().flex_1().flex().flex_col().overflow_hidden().children(rows))
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .children(rows),
+            )
     }
 }
 

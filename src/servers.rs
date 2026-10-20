@@ -26,8 +26,16 @@ pub fn list_servers(instance_dir: &Path) -> Vec<Server> {
     let mut out = Vec::new();
     if let Some(Nbt::List(items)) = root.get("servers") {
         for item in items {
-            let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let ip = item.get("ip").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = item
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let ip = item
+                .get("ip")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             if !ip.is_empty() {
                 out.push(Server { name, ip });
             }

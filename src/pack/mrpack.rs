@@ -83,7 +83,9 @@ pub fn install(pack: &Path, instance_dir: &Path) -> Result<PackManifest, String>
         if dest.is_file() {
             continue;
         }
-        let Some(url) = f.downloads.first() else { continue };
+        let Some(url) = f.downloads.first() else {
+            continue;
+        };
         net::download_verified(url, &dest, f.sha1.as_deref())?;
     }
 
@@ -100,8 +102,8 @@ pub fn install(pack: &Path, instance_dir: &Path) -> Result<PackManifest, String>
             if rel.is_empty() {
                 continue;
             }
-            let dest = fs::safe_join(&mc_dir, rel)
-                .ok_or_else(|| format!("unsafe path in pack: {rel}"))?;
+            let dest =
+                fs::safe_join(&mc_dir, rel).ok_or_else(|| format!("unsafe path in pack: {rel}"))?;
             if entry.is_dir() {
                 std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
             } else {
@@ -136,10 +138,7 @@ pub fn export(instance_dir: &Path, out: &Path, name: &str, version: &str) -> Res
             let sha1 = net::sha1_file(&path);
             files.push(MrFile {
                 path: rel,
-                hashes: sha1
-                    .into_iter()
-                    .map(|h| ("sha1".to_string(), h))
-                    .collect(),
+                hashes: sha1.into_iter().map(|h| ("sha1".to_string(), h)).collect(),
                 downloads: vec![],
                 file_size: path.metadata().map(|m| m.len()).unwrap_or(0),
             });

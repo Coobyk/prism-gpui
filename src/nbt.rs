@@ -82,9 +82,8 @@ impl<'a> Reader<'a> {
             .map(|b| i32::from_be_bytes([b[0], b[1], b[2], b[3]]))
     }
     fn i64(&mut self) -> Option<i64> {
-        self.take(8).map(|b| {
-            i64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
-        })
+        self.take(8)
+            .map(|b| i64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
     }
     fn f32(&mut self) -> Option<f32> {
         self.i32().map(|v| f32::from_bits(v as u32))
@@ -189,8 +188,14 @@ pub fn parse(bytes: &[u8]) -> Option<Nbt> {
 pub fn read_level_dat(path: &std::path::Path) -> Option<(String, i64)> {
     let bytes = std::fs::read(path).ok()?;
     let nbt = parse(&bytes)?;
-    let name = nbt.get("Data/LevelName").and_then(|v| v.as_str())?.to_string();
-    let played = nbt.get("Data/LastPlayed").and_then(|v| v.as_i64()).unwrap_or(0);
+    let name = nbt
+        .get("Data/LevelName")
+        .and_then(|v| v.as_str())?
+        .to_string();
+    let played = nbt
+        .get("Data/LastPlayed")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     Some((name, played))
 }
 
@@ -231,7 +236,10 @@ mod tests {
     #[test]
     fn parses_level_name_and_last_played() {
         let nbt = parse(&sample()).unwrap();
-        assert_eq!(nbt.get("Data/LevelName").unwrap().as_str(), Some("My World"));
+        assert_eq!(
+            nbt.get("Data/LevelName").unwrap().as_str(),
+            Some("My World")
+        );
         assert_eq!(nbt.get("Data/LastPlayed").unwrap().as_i64(), Some(1234567));
     }
 

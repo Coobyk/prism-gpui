@@ -145,8 +145,7 @@ pub fn import_archive(
     } else {
         curseforge::install(archive, &dir)?
     };
-    let components =
-        crate::modplatform::platform::pack_components(&manifest.dependencies);
+    let components = crate::modplatform::platform::pack_components(&manifest.dependencies);
     for (uid, version) in &components {
         let _ = crate::meta::set_component(&dir, uid, version);
     }
@@ -285,15 +284,23 @@ mod tests {
             std::fs::read_to_string(result.dir.join("minecraft/config/example.txt")).unwrap(),
             "hello"
         );
-        assert!(result
-            .components
-            .contains(&("net.minecraft".to_string(), "1.20.1".to_string())));
-        assert!(result
-            .components
-            .contains(&("net.fabricmc.fabric-loader".to_string(), "0.15.0".to_string())));
+        assert!(
+            result
+                .components
+                .contains(&("net.minecraft".to_string(), "1.20.1".to_string()))
+        );
+        assert!(result.components.contains(&(
+            "net.fabricmc.fabric-loader".to_string(),
+            "0.15.0".to_string()
+        )));
         // Components are persisted into the instance's component pack.
         let persisted = crate::meta::read_component_pack(&result.dir).unwrap();
-        assert!(persisted.components.iter().any(|c| c.uid == "net.minecraft"));
+        assert!(
+            persisted
+                .components
+                .iter()
+                .any(|c| c.uid == "net.minecraft")
+        );
 
         // Importing the same archive again gets a distinct directory.
         let again = import_archive(&pack, data_root, None).unwrap();

@@ -177,11 +177,11 @@ mod tests {
     use std::io::Write;
 
     fn jar_with(entries: &[(&str, &str)]) -> tempfile::NamedTempFile {
-        let mut file = tempfile::NamedTempFile::new().unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
         {
             let mut zip = zip::ZipWriter::new(std::fs::File::create(file.path()).unwrap());
-            let options: zip::write::FileOptions<()> =
-                zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            let options: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
             for (name, content) in entries {
                 zip.start_file(*name, options).unwrap();
                 zip.write_all(content.as_bytes()).unwrap();

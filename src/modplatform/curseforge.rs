@@ -99,10 +99,10 @@ impl CfFile {
     /// Best-effort download URL: the API-provided one when present, otherwise
     /// the public CDN layout (`mediafilez.forgecdn.net/files/<id/1000>/<id%1000>/<name>`).
     pub fn resolved_url(&self) -> Option<String> {
-        if let Some(u) = &self.download_url {
-            if !u.is_empty() {
-                return Some(u.clone());
-            }
+        if let Some(u) = &self.download_url
+            && !u.is_empty()
+        {
+            return Some(u.clone());
         }
         if self.file_name.is_empty() {
             return None;
@@ -152,7 +152,12 @@ impl CurseForge {
     }
 
     /// Latest files for a mod, filtered by game version / loader.
-    pub fn files(&self, mod_id: &str, game_version: &str, loader_type: u32) -> Result<Vec<CfFile>, String> {
+    pub fn files(
+        &self,
+        mod_id: &str,
+        game_version: &str,
+        loader_type: u32,
+    ) -> Result<Vec<CfFile>, String> {
         let url = format!(
             "{BASE}/mods/{mod_id}/files?gameVersion={game_version}&modLoaderType={loader_type}&pageSize=20"
         );
@@ -282,7 +287,11 @@ impl CurseForge {
     }
 
     /// Download a specific file into `dest_dir`.
-    pub fn install_file(&self, file: &CfFile, dest_dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    pub fn install_file(
+        &self,
+        file: &CfFile,
+        dest_dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf, String> {
         let url = file
             .resolved_url()
             .ok_or_else(|| format!("file {} has no download URL", file.display_name))?;

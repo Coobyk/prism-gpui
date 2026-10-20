@@ -223,13 +223,12 @@ impl ModBrowser {
         let plugin_source = row
             .plugin_source
             .and_then(|i| self.plugin_sources.get(i).cloned());
-        if let Some((_, _source)) = &plugin_source {
-            if row.kind == ContentKind::Modpack {
-                self.status =
-                    "Modpacks cannot be installed from a plugin content source".into();
-                cx.notify();
-                return;
-            }
+        if let Some((_, _source)) = &plugin_source
+            && row.kind == ContentKind::Modpack
+        {
+            self.status = "Modpacks cannot be installed from a plugin content source".into();
+            cx.notify();
+            return;
         }
         self.status = format!("Installing {}…", row.title).into();
         cx.notify();
@@ -425,40 +424,44 @@ impl Render for ModBrowser {
                     }))
                     .into_any_element()
             }))
-            .chain(self.plugin_sources.iter().enumerate().map(|(i, (plugin, source))| {
-                let selected = plugin_selected == Some(i);
-                let name = source.name.clone();
-                let plugin = plugin.clone();
-                let source_name = name.clone();
-                div()
-                    .id(gpui::ElementId::Name(SharedString::from(format!(
-                        "filter-plugin-{name}"
-                    ))))
-                    .px_3()
-                    .py_1()
-                    .cursor_pointer()
-                    .bg(if selected {
-                        rgb(theme.accent)
-                    } else {
-                        rgb(theme.base)
-                    })
-                    .text_color(if selected {
-                        rgb(theme.on_accent)
-                    } else {
-                        rgb(theme.text)
-                    })
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(div().text_sm().child(name))
-                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
-                        this.plugin_selected = Some(i);
-                        this.hits.clear();
-                        this.selected = None;
-                        this.status =
-                            format!("{source_name} ({plugin}) selected").into();
-                        cx.notify();
-                    }))
-                    .into_any_element()
-            }))
+            .chain(
+                self.plugin_sources
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (plugin, source))| {
+                        let selected = plugin_selected == Some(i);
+                        let name = source.name.clone();
+                        let plugin = plugin.clone();
+                        let source_name = name.clone();
+                        div()
+                            .id(gpui::ElementId::Name(SharedString::from(format!(
+                                "filter-plugin-{name}"
+                            ))))
+                            .px_3()
+                            .py_1()
+                            .cursor_pointer()
+                            .bg(if selected {
+                                rgb(theme.accent)
+                            } else {
+                                rgb(theme.base)
+                            })
+                            .text_color(if selected {
+                                rgb(theme.on_accent)
+                            } else {
+                                rgb(theme.text)
+                            })
+                            .hover(|style| style.bg(rgb(theme.alternate)))
+                            .child(div().text_sm().child(name))
+                            .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                                this.plugin_selected = Some(i);
+                                this.hits.clear();
+                                this.selected = None;
+                                this.status = format!("{source_name} ({plugin}) selected").into();
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    }),
+            )
             .collect();
 
         // Virtualised so a 10k-result search only lays out visible rows.
@@ -530,11 +533,13 @@ impl Render for ModBrowser {
             .size_full()
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
-            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
-                if ev.keystroke.key == "enter" {
-                    this.search(cx);
-                }
-            }))
+            .on_key_down(
+                cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                    if ev.keystroke.key == "enter" {
+                        this.search(cx);
+                    }
+                }),
+            )
             // The search bar on top, like Prism's resource page.
             .child(
                 div()

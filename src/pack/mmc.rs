@@ -11,7 +11,11 @@ pub fn export(instance_dir: &Path, out: &Path) -> Result<(), String> {
     let opts: zip::write::FileOptions<()> =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
-    let skip = ["minecraft/logs", "minecraft/crash-reports", "minecraft/.cache"];
+    let skip = [
+        "minecraft/logs",
+        "minecraft/crash-reports",
+        "minecraft/.cache",
+    ];
     for path in fs::list_files(instance_dir) {
         let rel = path.strip_prefix(instance_dir).map_err(|e| e.to_string())?;
         let rel_str = rel.to_string_lossy().replace('\\', "/");
@@ -28,7 +32,11 @@ pub fn export(instance_dir: &Path, out: &Path) -> Result<(), String> {
 
 /// Import a Prism/MultiMC zip into a fresh instance directory named `name`.
 /// Returns the created directory.
-pub fn import(pack: &Path, instances_root: &Path, name: &str) -> Result<std::path::PathBuf, String> {
+pub fn import(
+    pack: &Path,
+    instances_root: &Path,
+    name: &str,
+) -> Result<std::path::PathBuf, String> {
     let file = std::fs::File::open(pack).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     let inst_dir = instances_root.join(name);
@@ -45,8 +53,8 @@ pub fn import(pack: &Path, instances_root: &Path, name: &str) -> Result<std::pat
         if rel == "instance.cfg" {
             found_cfg = true;
         }
-        let dest = fs::safe_join(&inst_dir, rel)
-            .ok_or_else(|| format!("unsafe path in pack: {rel}"))?;
+        let dest =
+            fs::safe_join(&inst_dir, rel).ok_or_else(|| format!("unsafe path in pack: {rel}"))?;
         if entry.is_dir() {
             std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
         } else {

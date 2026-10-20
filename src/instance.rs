@@ -31,10 +31,7 @@ impl Instance {
         Some(Instance {
             name,
             dir: dir.to_path_buf(),
-            instance_type: settings
-                .get("InstanceType")
-                .cloned()
-                .unwrap_or_default(),
+            instance_type: settings.get("InstanceType").cloned().unwrap_or_default(),
             icon_key: settings.get("IconKey").cloned().unwrap_or_default(),
             java_path: settings.get("JavaPath").cloned().unwrap_or_default(),
             min_mem: settings
@@ -83,10 +80,11 @@ pub fn discover_instances(data_root: &Path) -> Vec<Instance> {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() && path.join("instance.cfg").is_file() {
-            if let Some(inst) = Instance::load(&path) {
-                out.push(inst);
-            }
+        if path.is_dir()
+            && path.join("instance.cfg").is_file()
+            && let Some(inst) = Instance::load(&path)
+        {
+            out.push(inst);
         }
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -98,7 +96,11 @@ fn parse_ini(text: &str) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
     for line in text.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('[') || line.starts_with('#') || line.starts_with(';') {
+        if line.is_empty()
+            || line.starts_with('[')
+            || line.starts_with('#')
+            || line.starts_with(';')
+        {
             continue;
         }
         if let Some((k, v)) = line.split_once('=') {
@@ -203,8 +205,7 @@ pub fn duplicate_instance(data_root: &Path, from: &str, to: &str) -> Result<Path
     if !src.is_dir() {
         return Err(format!("instance not found: {from}"));
     }
-    crate::fs::copy_dir_recursive(&src, &dst, &[])
-        .map_err(|e| e.to_string())?;
+    crate::fs::copy_dir_recursive(&src, &dst, &[]).map_err(|e| e.to_string())?;
     Ok(dst)
 }
 

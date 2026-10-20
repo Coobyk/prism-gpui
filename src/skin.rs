@@ -9,12 +9,18 @@ pub struct SkinService;
 impl SkinService {
     /// URL for a full-body render (front, 3D) of a player.
     pub fn body_url(uuid: &str) -> String {
-        format!("https://crafatar.com/renders/body/{}?size=256&overlay", uuid.replace('-', ""))
+        format!(
+            "https://crafatar.com/renders/body/{}?size=256&overlay",
+            uuid.replace('-', "")
+        )
     }
 
     /// URL for a square head render of a player.
     pub fn head_url(uuid: &str) -> String {
-        format!("https://crafatar.com/avatars/{}?size=128&overlay", uuid.replace('-', ""))
+        format!(
+            "https://crafatar.com/avatars/{}?size=128&overlay",
+            uuid.replace('-', "")
+        )
     }
 
     /// Download a body render; returns the PNG bytes.
@@ -108,18 +114,11 @@ pub fn build_skin_upload_body(png: &[u8], variant: SkinVariant) -> (String, Vec<
         format!("\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"variant\"\r\n\r\n{}\r\n--{boundary}--\r\n", variant.as_str())
             .as_bytes(),
     );
-    (
-        format!("multipart/form-data; boundary={boundary}"),
-        body,
-    )
+    (format!("multipart/form-data; boundary={boundary}"), body)
 }
 
 /// Upload a skin PNG for the signed-in account.
-pub fn upload_skin(
-    access_token: &str,
-    png: &[u8],
-    variant: SkinVariant,
-) -> Result<(), String> {
+pub fn upload_skin(access_token: &str, png: &[u8], variant: SkinVariant) -> Result<(), String> {
     let (content_type, body) = build_skin_upload_body(png, variant);
     let response = crate::net::agent()
         .post(MC_SKINS_URL)
@@ -200,12 +199,22 @@ pub fn local_skin_dir(data_root: &Path) -> std::path::PathBuf {
 }
 
 /// Import a skin PNG into the local skin folder, returning its path.
-pub fn import_local_skin(data_root: &Path, name: &str, png: &[u8]) -> Result<std::path::PathBuf, String> {
+pub fn import_local_skin(
+    data_root: &Path,
+    name: &str,
+    png: &[u8],
+) -> Result<std::path::PathBuf, String> {
     let dir = local_skin_dir(data_root);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let safe: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let path = dir.join(format!("{}.png", safe.trim_matches('_')));
     std::fs::write(&path, png).map_err(|e| e.to_string())?;
@@ -319,7 +328,11 @@ mod management_tests {
 
         let not_png = td.path().join("not.png");
         std::fs::write(&not_png, b"hello world").unwrap();
-        assert!(validate_skin_file(&not_png).unwrap_err().contains("not a PNG"));
+        assert!(
+            validate_skin_file(&not_png)
+                .unwrap_err()
+                .contains("not a PNG")
+        );
     }
 
     #[test]

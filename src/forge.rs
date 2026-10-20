@@ -10,7 +10,8 @@ use std::process::Command;
 
 const FORGE_PROMOS: &str =
     "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
-const NEOFORGE_VERSIONS: &str = "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge";
+const NEOFORGE_VERSIONS: &str =
+    "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge";
 
 /// Resolve the recommended (or latest) Forge version for a Minecraft version.
 pub fn resolve_forge(mc_version: &str, prefer_recommended: bool) -> Result<String, String> {
@@ -66,7 +67,10 @@ pub fn resolve_neoforge(mc_version: &str) -> Result<Vec<String>, String> {
         .and_then(|v| v.as_array())
         .ok_or("neoforge versions JSON has no versions")?;
     // Map "1.21.1" -> "21.1".
-    let short = mc_version.strip_prefix("1.").unwrap_or(mc_version).to_string();
+    let short = mc_version
+        .strip_prefix("1.")
+        .unwrap_or(mc_version)
+        .to_string();
     let mut out: Vec<String> = versions
         .iter()
         .filter_map(|v| v.as_str())

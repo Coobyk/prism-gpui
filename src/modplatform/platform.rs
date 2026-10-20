@@ -92,7 +92,10 @@ impl Platform {
     ///
     /// A platform that needs an API key is only offered when that key is
     /// configured, so the UI never shows a tab that cannot return results.
-    pub fn usable_for_kind(kind: ContentKind, api_keys: &dyn Fn(&Platform) -> bool) -> Vec<Platform> {
+    pub fn usable_for_kind(
+        kind: ContentKind,
+        api_keys: &dyn Fn(&Platform) -> bool,
+    ) -> Vec<Platform> {
         Platform::for_kind(kind)
             .into_iter()
             .filter(|p| !p.needs_api_key() || api_keys(p))
@@ -361,9 +364,7 @@ pub fn install(
                 let file = cf
                     .latest_file(&hit.id, game_version, None)?
                     .ok_or("no files available")?;
-                let url = file
-                    .resolved_url()
-                    .ok_or("pack file has no download URL")?;
+                let url = file.resolved_url().ok_or("pack file has no download URL")?;
                 let pack = dir.join(&file.file_name);
                 crate::net::download_verified(&url, &pack, None)?;
                 let manifest = crate::pack::curseforge::install(&pack, dest)?;
@@ -412,8 +413,7 @@ pub fn install(
                 .next()
                 .filter(|s| !s.is_empty())
                 .ok_or("pack version unknown")?;
-            let manifest = crate::modplatform::atlauncher::AtLauncher
-                .manifest(&hit.id, version)?;
+            let manifest = crate::modplatform::atlauncher::AtLauncher.manifest(&hit.id, version)?;
             let components = manifest.components();
             let game_dir = dest.join("minecraft");
             let (n, blocked, failed) =

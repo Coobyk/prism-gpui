@@ -4,9 +4,8 @@
 use crate::launch::LaunchProfile;
 use crate::theme::Theme;
 use gpui::{
-    ClipboardItem,
-    App, Bounds, Context, IntoElement, ParentElement, Render, SharedString, Styled, Timer, Window,
-    WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    App, Bounds, ClipboardItem, Context, IntoElement, ParentElement, Render, SharedString, Styled,
+    Timer, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
 };
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,7 +21,12 @@ pub struct ConsoleView {
 }
 
 impl ConsoleView {
-    pub fn spawn_launch(profile: LaunchProfile, name: String, theme: Theme, cx: &mut Context<Self>) -> Self {
+    pub fn spawn_launch(
+        profile: LaunchProfile,
+        name: String,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let _ = &cx;
         let lines = Arc::new(Mutex::new(Vec::new()));
         let done = Arc::new(AtomicBool::new(false));
@@ -179,7 +183,13 @@ impl Render for ConsoleView {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child("Console"),
                     )
-                    .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
             )
             .child(
                 div()
@@ -190,9 +200,7 @@ impl Render for ConsoleView {
                     .p_2()
                     .font_family("monospace")
                     .text_sm()
-                    .children(tail.into_iter().map(|l| {
-                        div().child(l).into_any_element()
-                    })),
+                    .children(tail.into_iter().map(|l| div().child(l).into_any_element())),
             )
             // The button row of a log viewer.
             .child(

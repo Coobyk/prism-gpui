@@ -26,7 +26,9 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             Ok(())
         }
         Some("search-type") => {
-            let kind = args.get(1).ok_or("usage: search-type <mod|modpack|resourcepack|shader> <query>")?;
+            let kind = args
+                .get(1)
+                .ok_or("usage: search-type <mod|modpack|resourcepack|shader> <query>")?;
             let q = args.get(2).ok_or("usage: search-type <type> <query>")?;
             cmd_search_typed(kind, q);
             Ok(())
@@ -65,13 +67,21 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             cmd_search_platform(platform, kind, query, mc, loader)
         }
         Some("install-mod") => {
-            let platform = args.get(1).ok_or("usage: install-mod <platform> <id> <instance>")?;
-            let id = args.get(2).ok_or("usage: install-mod <platform> <id> <instance>")?;
-            let inst = args.get(3).ok_or("usage: install-mod <platform> <id> <instance>")?;
+            let platform = args
+                .get(1)
+                .ok_or("usage: install-mod <platform> <id> <instance>")?;
+            let id = args
+                .get(2)
+                .ok_or("usage: install-mod <platform> <id> <instance>")?;
+            let inst = args
+                .get(3)
+                .ok_or("usage: install-mod <platform> <id> <instance>")?;
             cmd_install_mod(data_root, platform, id, inst)
         }
         Some("install-ftb") => {
-            let id = args.get(1).ok_or("usage: install-ftb <pack-id> [version] [name]")?;
+            let id = args
+                .get(1)
+                .ok_or("usage: install-ftb <pack-id> [version] [name]")?;
             let version = args.get(2).map(|s| s.as_str());
             let name = args.get(3).map(|s| s.as_str());
             cmd_install_ftb(data_root, id, version, name)
@@ -82,18 +92,24 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             cmd_install_technic(data_root, slug, name)
         }
         Some("install-atl") => {
-            let safe = args.get(1).ok_or("usage: install-atl <safe-name> [version] [name]")?;
+            let safe = args
+                .get(1)
+                .ok_or("usage: install-atl <safe-name> [version] [name]")?;
             let version = args.get(2).map(|s| s.as_str());
             let name = args.get(3).map(|s| s.as_str());
             cmd_install_atl(data_root, safe, version, name)
         }
         Some("install-packwiz") => {
-            let url = args.get(1).ok_or("usage: install-packwiz <url|file> [name]")?;
+            let url = args
+                .get(1)
+                .ok_or("usage: install-packwiz <url|file> [name]")?;
             let name = args.get(2).map(|s| s.as_str());
             cmd_install_packwiz(data_root, url, name)
         }
         Some("install-pack-cf") => {
-            let id = args.get(1).ok_or("usage: install-pack-cf <mod-id> [name]")?;
+            let id = args
+                .get(1)
+                .ok_or("usage: install-pack-cf <mod-id> [name]")?;
             let name = args.get(2).map(|s| s.as_str());
             cmd_install_pack_cf(data_root, id, name)
         }
@@ -113,7 +129,10 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let mut store = crate::accounts::AccountStore::load(data_root);
             store.upsert(account.clone());
             store.save(data_root)?;
-            println!("added offline account {} ({})", account.username, account.uuid);
+            println!(
+                "added offline account {} ({})",
+                account.username, account.uuid
+            );
             Ok(())
         }
         Some("accounts") => {
@@ -123,7 +142,12 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             }
             for a in &store.accounts {
                 let active = store.active.as_deref() == Some(a.uuid.as_str());
-                println!("{}{:<20} {}", if active { "* " } else { "  " }, a.username, a.uuid);
+                println!(
+                    "{}{:<20} {}",
+                    if active { "* " } else { "  " },
+                    a.username,
+                    a.uuid
+                );
             }
             Ok(())
         }
@@ -163,7 +187,9 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
                     Ok(())
                 }
                 "upload" => {
-                    let file = args.get(2).ok_or("usage: skin upload <file.png> [classic|slim]")?;
+                    let file = args
+                        .get(2)
+                        .ok_or("usage: skin upload <file.png> [classic|slim]")?;
                     let variant = match args.get(3).map(|s| s.as_str()) {
                         Some("slim") => crate::skin::SkinVariant::Slim,
                         Some("classic") | None => crate::skin::SkinVariant::Classic,
@@ -208,7 +234,9 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             Ok(())
         }
         Some("skin-upload") => {
-            let path = args.get(1).ok_or("usage: skin-upload <file.png> [classic|slim]")?;
+            let path = args
+                .get(1)
+                .ok_or("usage: skin-upload <file.png> [classic|slim]")?;
             let variant = crate::skin::SkinVariant::from_str(
                 args.get(2).map(|s| s.as_str()).unwrap_or("classic"),
             );
@@ -323,10 +351,11 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let filter = args.get(1).map(|s| s.to_ascii_lowercase());
             let mut shown = 0;
             for v in &list {
-                if let Some(f) = &filter {
-                    if !v.id.to_ascii_lowercase().contains(f) && v.version_type != *f {
-                        continue;
-                    }
+                if let Some(f) = &filter
+                    && !v.id.to_ascii_lowercase().contains(f)
+                    && v.version_type != *f
+                {
+                    continue;
                 }
                 println!("  {:<20} {:<10} {}", v.id, v.version_type, v.release_time);
                 shown += 1;
@@ -361,7 +390,9 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             let comp = args
                 .get(1)
                 .ok_or("usage: java-download <component> <major>")?;
-            let major = args.get(2).ok_or("usage: java-download <component> <major>")?;
+            let major = args
+                .get(2)
+                .ok_or("usage: java-download <component> <major>")?;
             let bin = java::ensure_runtime(data_root, comp, major)?;
             println!("java: {}", bin.display());
             Ok(())
@@ -412,16 +443,24 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             Ok(())
         }
         Some("set-component") => {
-            let name = args.get(1).ok_or("usage: set-component <instance> <uid> <version>")?;
-            let uid = args.get(2).ok_or("usage: set-component <instance> <uid> <version>")?;
-            let version = args.get(3).ok_or("usage: set-component <instance> <uid> <version>")?;
+            let name = args
+                .get(1)
+                .ok_or("usage: set-component <instance> <uid> <version>")?;
+            let uid = args
+                .get(2)
+                .ok_or("usage: set-component <instance> <uid> <version>")?;
+            let version = args
+                .get(3)
+                .ok_or("usage: set-component <instance> <uid> <version>")?;
             let inst = find_instance(data_root, name)?;
             meta::set_component(&inst.dir, uid, version)?;
             println!("set {uid} = {version} in {name}");
             Ok(())
         }
         Some("add-fabric") => {
-            let name = args.get(1).ok_or("usage: add-fabric <instance> [loader-version]")?;
+            let name = args
+                .get(1)
+                .ok_or("usage: add-fabric <instance> [loader-version]")?;
             let inst = find_instance(data_root, name)?;
             let (game_version, _) = instance_game_loader(&inst.dir);
             let game_version = game_version.ok_or("could not determine Minecraft version")?;
@@ -488,14 +527,20 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
                 println!("running Forge installer {mc}-{forge_version}…");
                 crate::forge::run_installer(&url, &java.path, &inst.dir)?;
             } else {
-                crate::metaindex::ensure_component(data_root, "net.minecraftforge", &forge_version)?;
+                crate::metaindex::ensure_component(
+                    data_root,
+                    "net.minecraftforge",
+                    &forge_version,
+                )?;
             }
             meta::set_component(&inst.dir, "net.minecraftforge", &forge_version)?;
             println!("installed Forge {forge_version} into {name}");
             Ok(())
         }
         Some("add-quilt") => {
-            let name = args.get(1).ok_or("usage: add-quilt <instance> [loader-version]")?;
+            let name = args
+                .get(1)
+                .ok_or("usage: add-quilt <instance> [loader-version]")?;
             let inst = find_instance(data_root, name)?;
             let (game_version, _) = instance_game_loader(&inst.dir);
             let mc = game_version.ok_or("could not determine Minecraft version")?;
@@ -537,12 +582,9 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
                     uid: "com.mumfrey.liteloader".to_string(),
                     version: v.clone(),
                 }],
-                None => crate::metaindex::resolve_chain(
-                    data_root,
-                    "com.mumfrey.liteloader",
-                    &mc,
-                    true,
-                )?,
+                None => {
+                    crate::metaindex::resolve_chain(data_root, "com.mumfrey.liteloader", &mc, true)?
+                }
             };
             for c in &chain {
                 meta::set_component(&inst.dir, &c.uid, &c.version)?;
@@ -605,7 +647,11 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| name.clone());
             let mut store = crate::groups::GroupStore::load(data_root);
-            let group = if group == "-" { None } else { Some(group.as_str()) };
+            let group = if group == "-" {
+                None
+            } else {
+                Some(group.as_str())
+            };
             store.set_group(&id, group);
             store.save(data_root)?;
             println!("set group of {name} to {}", group.unwrap_or("(none)"));
@@ -772,11 +818,7 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
                 });
             };
             let hits = crate::plugin::search_source(source, query)?;
-            println!(
-                "{} ({plugin}) — {} results",
-                source.name,
-                hits.len()
-            );
+            println!("{} ({plugin}) — {} results", source.name, hits.len());
             for h in &hits {
                 println!(
                     "  {:<24} {:<10} {}",
@@ -795,8 +837,12 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             Ok(())
         }
         Some("install-source") => {
-            let name = args.get(1).ok_or("usage: install-source <source> <id> <instance>")?;
-            let id = args.get(2).ok_or("usage: install-source <source> <id> <instance>")?;
+            let name = args
+                .get(1)
+                .ok_or("usage: install-source <source> <id> <instance>")?;
+            let id = args
+                .get(2)
+                .ok_or("usage: install-source <source> <id> <instance>")?;
             let inst_name = args
                 .get(3)
                 .ok_or("usage: install-source <source> <id> <instance>")?;
@@ -823,9 +869,7 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("installed {}", path.display());
             Ok(())
         }
-        Some("news") => {
-            cmd_news()
-        }
+        Some("news") => cmd_news(),
         Some("log") => {
             let name = args.get(1).ok_or("usage: log <instance> [lines]")?;
             let lines = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(50);
@@ -855,8 +899,12 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             cmd_import(data_root, Path::new(path), name)
         }
         Some("export") => {
-            let name = args.get(1).ok_or("usage: export <instance> <file> [format]")?;
-            let file = args.get(2).ok_or("usage: export <instance> <file> [format]")?;
+            let name = args
+                .get(1)
+                .ok_or("usage: export <instance> <file> [format]")?;
+            let file = args
+                .get(2)
+                .ok_or("usage: export <instance> <file> [format]")?;
             let format = args.get(3).map(|s| s.as_str()).unwrap_or("mrpack");
             cmd_export(data_root, name, Path::new(file), format)
         }
@@ -995,10 +1043,10 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
     // also materialises their libraries and maven-only artifacts.
     let (resolved, failed) = crate::metaindex::ensure_instance_components(data_root, &pack);
     for c in &pack.components {
-        if c.uid == "net.minecraft" {
-            if let Err(e) = meta::ensure_minecraft(data_root, &c.version) {
-                eprintln!("warning: net.minecraft {}: {e}", c.version);
-            }
+        if c.uid == "net.minecraft"
+            && let Err(e) = meta::ensure_minecraft(data_root, &c.version)
+        {
+            eprintln!("warning: net.minecraft {}: {e}", c.version);
         }
         let path = meta_dir.join(&c.uid).join(format!("{}.json", c.version));
         let Some(v) = meta::read_version_json(&path) else {
@@ -1068,7 +1116,11 @@ fn cmd_check_mods(data_root: &Path, name: &str) -> Result<(), String> {
         checked += 1;
         match provider.version_from_hash(&sha1) {
             Ok(version) => {
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let file_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 println!(
                     "{:<40} current {} ({})",
                     file_name,
@@ -1077,7 +1129,11 @@ fn cmd_check_mods(data_root: &Path, name: &str) -> Result<(), String> {
                 );
             }
             Err(_) => {
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let file_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 println!("{file_name:<40} (not on Modrinth / unknown)");
             }
         }
@@ -1101,7 +1157,8 @@ fn cmd_install_pack(data_root: &Path, slug: &str, name: Option<&str>) -> Result<
         .find(|p| p.extension().map(|e| e == "mrpack").unwrap_or(false))
         .ok_or("pack download did not produce a .mrpack")?;
     crate::pack::mrpack::install(&downloaded, &inst_dir)?;
-    let cfg = "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nMinMemAlloc=512\nMaxMemAlloc=4096\n";
+    let cfg =
+        "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nMinMemAlloc=512\nMaxMemAlloc=4096\n";
     std::fs::write(inst_dir.join("instance.cfg"), cfg).map_err(|e| e.to_string())?;
     // Persist pack dependencies into mmc-pack.json.
     if let Ok(m) = crate::pack::mrpack::manifest_from_pack(&downloaded) {
@@ -1325,12 +1382,8 @@ fn cmd_install_mod(
         extra: String::new(),
     };
     let dest = inst.dir.join("minecraft").join(subdir);
-    let outcome = crate::modplatform::platform::install(
-        &hit,
-        &dest,
-        mc.as_deref(),
-        loader.as_deref(),
-    )?;
+    let outcome =
+        crate::modplatform::platform::install(&hit, &dest, mc.as_deref(), loader.as_deref())?;
     println!("{}", outcome.message);
     Ok(())
 }
@@ -1341,9 +1394,14 @@ fn cmd_install_ftb(
     version: Option<&str>,
     name: Option<&str>,
 ) -> Result<(), String> {
-    let pack_id: u64 = id.parse().map_err(|_| format!("invalid FTB pack id: {id}"))?;
+    let pack_id: u64 = id
+        .parse()
+        .map_err(|_| format!("invalid FTB pack id: {id}"))?;
     let version_id = match version {
-        Some(v) if !v.is_empty() => Some(v.parse::<u64>().map_err(|_| format!("invalid version: {v}"))?),
+        Some(v) if !v.is_empty() => Some(
+            v.parse::<u64>()
+                .map_err(|_| format!("invalid version: {v}"))?,
+        ),
         _ => None,
     };
     let info = crate::modplatform::ftb::Ftb
@@ -1373,7 +1431,7 @@ fn cmd_install_technic(data_root: &Path, slug: &str, name: Option<&str>) -> Resu
         .map_err(|e| format!("cannot fetch Technic pack {slug}: {e}"))?;
     let mc = pack.minecraft.clone();
     let components = vec![("net.minecraft".to_string(), mc.clone())];
-    let dir_name = sanitize_name(name.unwrap_or(&pack.title()));
+    let dir_name = sanitize_name(name.unwrap_or(pack.title()));
     let inst_dir = create_instance_with_components(data_root, &dir_name, &components)?;
     let game_dir = inst_dir.join("minecraft");
     let (summary, components) = crate::modplatform::technic::Technic.install(slug, &game_dir)?;
@@ -1434,11 +1492,7 @@ fn cmd_install_atl(
     Ok(())
 }
 
-fn cmd_install_packwiz(
-    data_root: &Path,
-    url: &str,
-    name: Option<&str>,
-) -> Result<(), String> {
+fn cmd_install_packwiz(data_root: &Path, url: &str, name: Option<&str>) -> Result<(), String> {
     let local = Path::new(url);
     let (zip_path, cleanup) = if local.is_file() {
         (local.to_path_buf(), false)
@@ -1489,9 +1543,7 @@ fn cmd_install_pack_cf(data_root: &Path, id: &str, name: Option<&str>) -> Result
     let file = cf
         .latest_any(id)?
         .ok_or_else(|| format!("no files for CurseForge project {id}"))?;
-    let url = file
-        .resolved_url()
-        .ok_or("pack file has no download URL")?;
+    let url = file.resolved_url().ok_or("pack file has no download URL")?;
     let tmp_dir = std::env::temp_dir().join(format!("prism-cfpack-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp_dir);
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
@@ -1578,7 +1630,7 @@ fn cmd_packinfo(path: &Path) -> Result<(), String> {
     let manifest = match crate::pack::detect_format(path) {
         "mrpack" => crate::pack::mrpack::manifest_from_pack(path),
         "zip" => crate::pack::curseforge::manifest_from_pack(path)
-            .or_else(|_| Err::<crate::pack::PackManifest, _>("not a recognized pack".to_string())),
+            .map_err(|_| "not a recognized pack".to_string()),
         _ => Err("unsupported file type".to_string()),
     };
     match manifest {
@@ -1597,11 +1649,11 @@ fn cmd_packinfo(path: &Path) -> Result<(), String> {
 
 fn cmd_import(data_root: &Path, path: &Path, name: Option<&str>) -> Result<(), String> {
     // A URL is downloaded first and then imported like a local file.
-    if let Some(url) = path.to_str() {
-        if url.starts_with("http://") || url.starts_with("https://") {
-            let file = download_to_temp(url)?;
-            return cmd_import(data_root, &file, name);
-        }
+    if let Some(url) = path.to_str()
+        && (url.starts_with("http://") || url.starts_with("https://"))
+    {
+        let file = download_to_temp(url)?;
+        return cmd_import(data_root, &file, name);
     }
     // `import_archive` detects mrpack / CurseForge / Prism zips from their
     // contents, materialises components and picks a non-colliding name.
@@ -1632,7 +1684,9 @@ fn cmd_export(data_root: &Path, name: &str, out: &Path, format: &str) -> Result<
         .ok_or_else(|| format!("instance not found: {name}"))?;
     match format {
         "mrpack" => crate::pack::mrpack::export(&inst.dir, out, &inst.name, "1.0.0")?,
-        "curseforge" | "cf" => crate::pack::curseforge::export(&inst.dir, out, &inst.name, "1.0.0")?,
+        "curseforge" | "cf" => {
+            crate::pack::curseforge::export(&inst.dir, out, &inst.name, "1.0.0")?
+        }
         "mmc" | "zip" => crate::pack::mmc::export(&inst.dir, out)?,
         other => return Err(format!("unknown export format: {other}")),
     }
@@ -1679,7 +1733,12 @@ fn cmd_install(data_root: &Path, name: &str, slug: &str) -> Result<(), String> {
         .ok_or_else(|| format!("no compatible version for {slug}"))?;
     let mods_dir = inst.dir.join("minecraft").join("mods");
     let path = provider.download_version_file(version, &mods_dir)?;
-    println!("installed {} {} → {}", slug, version.version_number, path.display());
+    println!(
+        "installed {} {} → {}",
+        slug,
+        version.version_number,
+        path.display()
+    );
     Ok(())
 }
 
@@ -1712,7 +1771,7 @@ fn cmd_profile(data_root: &Path, name: &str) -> Result<(), String> {
         .ok_or_else(|| format!("instance not found: {name}"))?;
     let java_path = java::ensure_for_instance(data_root, &inst.dir)?;
     let account = crate::accounts::account_for_instance(data_root, &inst.dir);
-    let mut profile =
+    let profile =
         launch::build_profile_with_account(&inst.dir, data_root, &java_path, account.as_ref())
             .ok_or("could not build launch profile")?;
     if let Some(pack) = meta::read_component_pack(&inst.dir) {
@@ -1789,7 +1848,10 @@ fn cmd_launch(
         "launching {} with {} as {} ({} jars, main {})",
         inst.name,
         java_path.display(),
-        account.as_ref().map(|a| a.username.as_str()).unwrap_or("offline"),
+        account
+            .as_ref()
+            .map(|a| a.username.as_str())
+            .unwrap_or("offline"),
         profile.classpath.len(),
         profile.main_class
     );

@@ -151,7 +151,11 @@ impl Technic {
 
     /// Fetch the Solder build index for a pack.
     pub fn solder_pack(&self, solder: &str, slug: &str) -> Result<SolderPack, String> {
-        let url = format!("{}/modpack/{}", solder.trim_end_matches('/'), urlencode(slug));
+        let url = format!(
+            "{}/modpack/{}",
+            solder.trim_end_matches('/'),
+            urlencode(slug)
+        );
         let body = crate::net::get_string(&url)?;
         serde_json::from_str(&body).map_err(|e| e.to_string())
     }
@@ -169,6 +173,7 @@ impl Technic {
 
     /// Resolve the recommended build of a Solder pack and return the
     /// Minecraft version alongside the mod archives.
+    #[allow(clippy::type_complexity)]
     pub fn resolve_build(
         &self,
         solder: &str,
@@ -217,7 +222,11 @@ impl Technic {
             let mut n = 0usize;
             for (i, (url, md5, label)) in mods.iter().enumerate() {
                 let archive = tmp.join(format!("{i}.zip"));
-                let checksum = if md5.is_empty() { None } else { Some(md5.as_str()) };
+                let checksum = if md5.is_empty() {
+                    None
+                } else {
+                    Some(md5.as_str())
+                };
                 crate::net::download_verified_md5(url, &archive, checksum)
                     .map_err(|e| format!("{label}: {e}"))?;
                 if let Err(e) = crate::fs::extract_zip(&archive, game_dir, false) {
@@ -295,7 +304,10 @@ mod tests {
         assert_eq!(r.modpacks.len(), 1);
         assert_eq!(r.modpacks[0].title(), "Tekkit");
         assert_eq!(r.modpacks[0].slug(), "tekkitmain");
-        assert_eq!(r.modpacks[0].solder.as_deref(), Some("https://solder.technicpack.net/api/"));
+        assert_eq!(
+            r.modpacks[0].solder.as_deref(),
+            Some("https://solder.technicpack.net/api/")
+        );
     }
 
     #[test]

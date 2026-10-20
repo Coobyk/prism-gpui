@@ -36,10 +36,10 @@ fn proxy_url() -> Option<String> {
         "ALL_PROXY",
         "all_proxy",
     ] {
-        if let Ok(v) = std::env::var(key) {
-            if !v.trim().is_empty() {
-                return Some(v);
-            }
+        if let Ok(v) = std::env::var(key)
+            && !v.trim().is_empty()
+        {
+            return Some(v);
         }
     }
     None
@@ -171,7 +171,11 @@ pub fn download_verified_hash(
 
 /// Download `url` to `dest`, verifying the sha1 if provided. Skips if the
 /// destination already matches.
-pub fn download_verified(url: &str, dest: &Path, expected_sha1: Option<&str>) -> Result<(), String> {
+pub fn download_verified(
+    url: &str,
+    dest: &Path,
+    expected_sha1: Option<&str>,
+) -> Result<(), String> {
     download_with(url, dest, expected_sha1.map(|s| (s, true)))
 }
 
@@ -185,17 +189,15 @@ pub fn download_verified_md5(
 }
 
 /// Shared download path: `checksum` is `(value, is_sha1)`.
-fn download_with(
-    url: &str,
-    dest: &Path,
-    checksum: Option<(&str, bool)>,
-) -> Result<(), String> {
+fn download_with(url: &str, dest: &Path, checksum: Option<(&str, bool)>) -> Result<(), String> {
     let verify = |path: &Path| -> Result<(), String> {
         match checksum {
             None => Ok(()),
             Some((exp, true)) => match sha1_file(path) {
                 Some(got) if got == exp => Ok(()),
-                Some(got) => Err(format!("sha1 mismatch for {url}: expected {exp}, got {got}")),
+                Some(got) => Err(format!(
+                    "sha1 mismatch for {url}: expected {exp}, got {got}"
+                )),
                 None => Err("could not hash download".to_string()),
             },
             Some((exp, false)) => match md5_file(path) {
@@ -205,19 +207,14 @@ fn download_with(
             },
         }
     };
-    if dest.is_file() {
-        if checksum.is_none() || verify(dest).is_ok() {
-            return Ok(());
-        }
+    if dest.is_file() && (checksum.is_none() || verify(dest).is_ok()) {
+        return Ok(());
     }
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let tmp = dest.with_extension("part");
-    let resp = agent()
-        .get(url)
-        .call()
-        .map_err(|e| e.to_string())?;
+    let resp = agent().get(url).call().map_err(|e| e.to_string())?;
     let mut reader = resp.into_reader();
     let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     std::io::copy(&mut reader, &mut out).map_err(|e| e.to_string())?;

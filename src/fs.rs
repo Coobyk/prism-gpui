@@ -5,7 +5,10 @@ use std::path::{Component, Path, PathBuf};
 /// Copy a directory tree recursively. Skips the given relative sub-paths.
 pub fn copy_dir_recursive(src: &Path, dst: &Path, skip: &[&str]) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
-    for entry in walkdir::WalkDir::new(src).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(src)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let rel = entry.path().strip_prefix(src).unwrap_or(entry.path());
         if skip.iter().any(|s| rel.starts_with(s)) {
             continue;
@@ -70,7 +73,11 @@ pub fn extract_zip_reader<R: std::io::Read + std::io::Seek>(
 ) -> Result<usize, String> {
     let mut zip = zip::ZipArchive::new(reader).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
-    let strip = if strip_top { common_top_dir(&mut zip) } else { None };
+    let strip = if strip_top {
+        common_top_dir(&mut zip)
+    } else {
+        None
+    };
     let mut count = 0;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;

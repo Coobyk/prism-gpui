@@ -138,15 +138,17 @@ pub fn read_pack(dir: &Path) -> Result<PackToml, String> {
 }
 
 pub fn read_index(dir: &Path, index_name: &str) -> Result<IndexToml, String> {
-    let text =
-        std::fs::read_to_string(dir.join(index_name)).map_err(|e| e.to_string())?;
+    let text = std::fs::read_to_string(dir.join(index_name)).map_err(|e| e.to_string())?;
     toml::from_str(&text).map_err(|e| e.to_string())
 }
 
 /// Directory a metafile path (e.g. `mods/foo.pw.toml`) refers to, and the
 /// base file name to use when the metafile names no filename.
 pub fn dest_for_metafile(metafile_path: &str, metafile: &MetaFile) -> Option<String> {
-    let dir = Path::new(metafile_path).parent()?.to_string_lossy().to_string();
+    let dir = Path::new(metafile_path)
+        .parent()?
+        .to_string_lossy()
+        .to_string();
     let name = if !metafile.filename.is_empty() {
         metafile.filename.clone()
     } else if !metafile.name.is_empty() {
@@ -168,27 +170,26 @@ pub fn dest_for_metafile(metafile_path: &str, metafile: &MetaFile) -> Option<Str
 /// Resolve a metafile's download source, following a Modrinth/CurseForge
 /// update reference when the metafile has no direct URL.
 pub fn resolve_metafile(metafile: &MetaFile) -> Result<(String, String, String), String> {
-    if let Some(dl) = &metafile.download {
-        if !dl.url.is_empty() {
-            return Ok((dl.url.clone(), dl.hash.clone(), dl.hash_format.clone()));
-        }
+    if let Some(dl) = &metafile.download
+        && !dl.url.is_empty()
+    {
+        return Ok((dl.url.clone(), dl.hash.clone(), dl.hash_format.clone()));
     }
-    if let Some(update) = &metafile.update {
-        if let Some(m) = &update.modrinth {
-            if !m.version.is_empty() {
-                let info = crate::modplatform::modrinth::Modrinth
-                    .version_by_id(&m.version)?;
-                if let Some(f) = info.files.iter().find(|f| f.primary).or(info.files.first()) {
-                    return Ok((f.url.clone(), f.hashes.sha1.clone(), "sha1".to_string()));
-                }
-            } else if !m.mod_id.is_empty() {
-                let versions = crate::modplatform::modrinth::Modrinth
-                    .versions(&m.mod_id, None, None)?;
-                if let Some(v) = versions.first() {
-                    if let Some(f) = v.files.iter().find(|f| f.primary).or(v.files.first()) {
-                        return Ok((f.url.clone(), f.hashes.sha1.clone(), "sha1".to_string()));
-                    }
-                }
+    if let Some(update) = &metafile.update
+        && let Some(m) = &update.modrinth
+    {
+        if !m.version.is_empty() {
+            let info = crate::modplatform::modrinth::Modrinth.version_by_id(&m.version)?;
+            if let Some(f) = info.files.iter().find(|f| f.primary).or(info.files.first()) {
+                return Ok((f.url.clone(), f.hashes.sha1.clone(), "sha1".to_string()));
+            }
+        } else if !m.mod_id.is_empty() {
+            let versions =
+                crate::modplatform::modrinth::Modrinth.versions(&m.mod_id, None, None)?;
+            if let Some(v) = versions.first()
+                && let Some(f) = v.files.iter().find(|f| f.primary).or(v.files.first())
+            {
+                return Ok((f.url.clone(), f.hashes.sha1.clone(), "sha1".to_string()));
             }
         }
     }
@@ -203,7 +204,10 @@ pub fn install_from_dir(
     side: &str,
 ) -> Result<(usize, Vec<String>), String> {
     let pack = read_pack(pack_dir)?;
-    let index_name = pack.index.clone().unwrap_or_else(|| "index.toml".to_string());
+    let index_name = pack
+        .index
+        .clone()
+        .unwrap_or_else(|| "index.toml".to_string());
     let index = read_index(pack_dir, &index_name)?;
     let mut installed = 0usize;
     let mut skipped = Vec::new();
@@ -238,8 +242,16 @@ pub fn install_from_dir(
             };
             let dest = crate::fs::safe_join(game_dir, &dest_rel)
                 .ok_or_else(|| format!("unsafe path in packwiz index: {dest_rel}"))?;
-            let alg = if format.is_empty() { None } else { Some(format.as_str()) };
-            let exp = if hash.is_empty() { None } else { Some(hash.as_str()) };
+            let alg = if format.is_empty() {
+                None
+            } else {
+                Some(format.as_str())
+            };
+            let exp = if hash.is_empty() {
+                None
+            } else {
+                Some(hash.as_str())
+            };
             crate::net::download_verified_hash(&url, &dest, alg, exp)?;
             installed += 1;
         }
@@ -297,7 +309,11 @@ fabric = "0.15.0"
         let p: PackToml = toml::from_str(text).unwrap();
         assert_eq!(p.name, "My Pack");
         assert_eq!(p.minecraft(), Some("1.20.1"));
-        assert!(p.components().iter().any(|(u, _)| u == "net.fabricmc.fabric-loader"));
+        assert!(
+            p.components()
+                .iter()
+                .any(|(u, _)| u == "net.fabricmc.fabric-loader")
+        );
     }
 
     #[test]

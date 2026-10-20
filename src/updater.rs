@@ -172,7 +172,9 @@ pub fn apply_update(downloaded: &Path, target_exe: &Path) -> Result<PathBuf, Str
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&binary).map_err(|e| e.to_string())?.permissions();
+        let mut perms = std::fs::metadata(&binary)
+            .map_err(|e| e.to_string())?
+            .permissions();
         perms.set_mode(perms.mode() | 0o755);
         std::fs::set_permissions(&binary, perms).map_err(|e| e.to_string())?;
     }

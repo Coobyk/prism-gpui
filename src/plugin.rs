@@ -182,8 +182,9 @@ impl PluginHost {
             let path = entry.path();
             if path.is_dir() {
                 let manifest_path = path.join("plugin.toml");
-                match std::fs::read_to_string(&manifest_path) {
-                    Ok(text) => match toml::from_str::<PluginManifest>(&text) {
+                // A directory without a manifest is not a plugin.
+                if let Ok(text) = std::fs::read_to_string(&manifest_path) {
+                    match toml::from_str::<PluginManifest>(&text) {
                         Ok(manifest) => {
                             if manifest.api_version != PLUGIN_API_VERSION {
                                 host.warnings.push(format!(
@@ -201,19 +202,19 @@ impl PluginHost {
                         Err(e) => host
                             .warnings
                             .push(format!("{}: {e}", manifest_path.display())),
-                    },
-                    Err(_) => {} // directory without a manifest: ignore
-                }
-            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if matches!(ext, "so" | "dll" | "dylib") {
-                    match NativePlugin::load(&path) {
-                        Ok(p) => host.natives.push(p),
-                        Err(e) => host.warnings.push(e),
                     }
+                }
+            } else if let Some(ext) = path.extension().and_then(|e| e.to_str())
+                && matches!(ext, "so" | "dll" | "dylib")
+            {
+                match NativePlugin::load(&path) {
+                    Ok(p) => host.natives.push(p),
+                    Err(e) => host.warnings.push(e),
                 }
             }
         }
-        host.manifests.sort_by(|a, b| a.manifest.name.cmp(&b.manifest.name));
+        host.manifests
+            .sort_by(|a, b| a.manifest.name.cmp(&b.manifest.name));
         host
     }
 
@@ -221,7 +222,12 @@ impl PluginHost {
     pub fn sources(&self) -> Vec<(&str, &ContentSource)> {
         self.manifests
             .iter()
-            .flat_map(|p| p.manifest.source.iter().map(|s| (p.manifest.name.as_str(), s)))
+            .flat_map(|p| {
+                p.manifest
+                    .source
+                    .iter()
+                    .map(|s| (p.manifest.name.as_str(), s))
+            })
             .collect()
     }
 
@@ -246,10 +252,7 @@ impl PluginHost {
 
     pub fn print(&self) {
         if self.manifests.is_empty() && self.natives.is_empty() {
-            println!(
-                "(no plugins in {})",
-                plugins_dir(Path::new("")).display()
-            );
+            println!("(no plugins in {})", plugins_dir(Path::new("")).display());
         }
         for p in &self.manifests {
             println!(
@@ -305,7 +308,8 @@ pub struct SourceHit {
 }
 
 /// Search a manifest-declared content source.
-pub fn search_source(source: &ContentSource, query: &str) -> Result<Vec<SourceHit>, String> {    let url = expand(&source.search_url, &[("query", query)]);
+pub fn search_source(source: &ContentSource, query: &str) -> Result<Vec<SourceHit>, String> {
+    let url = expand(&source.search_url, &[("query", query)]);
     let body = crate::net::get_string(&url)?;
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let node = if source.results_path.is_empty() {
@@ -393,7 +397,11 @@ pub fn install_source(
         .filter(|s| !s.is_empty() && s.contains('.') && !s.contains('{'))
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
-            format!("{}-{}.jar", sanitize_filename(&source.name), sanitize_filename(&hit.id))
+            format!(
+                "{}-{}.jar",
+                sanitize_filename(&source.name),
+                sanitize_filename(&hit.id)
+            )
         });
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     let path = dest.join(file_name);
@@ -447,11 +455,7 @@ versions-url = "https://maven.example.com/forge/maven-metadata.xml"
         let td = tempfile::tempdir().unwrap();
         let dir = plugins_dir(td.path()).join("old");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("plugin.toml"),
-            "name=\"Old\"\napi-version = 99\n",
-        )
-        .unwrap();
+        std::fs::write(dir.join("plugin.toml"), "name=\"Old\"\napi-version = 99\n").unwrap();
         let host = PluginHost::discover(td.path());
         assert!(host.manifests.is_empty());
         assert_eq!(host.warnings.len(), 1);

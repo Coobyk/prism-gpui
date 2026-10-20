@@ -56,94 +56,647 @@ pub const PAGES: &[&str] = &[
 /// interchangeable with the C++ launcher.
 pub const SETTINGS: &[SettingDef] = &[
     // ---- Appearance / UI ----
-    SettingDef { key: "ApplicationTheme", section: "General", default: "", kind: ValueKind::Enum(&["", "dark", "light", "system"]), label: "Theme", page: "Appearance" },
-    SettingDef { key: "IconTheme", section: "General", default: "", kind: ValueKind::Str, label: "Icon theme", page: "Appearance" },
-    SettingDef { key: "Language", section: "General", default: "en_US", kind: ValueKind::Str, label: "Language", page: "Language" },
-    SettingDef { key: "UseSystemLocale", section: "General", default: "false", kind: ValueKind::Bool, label: "Use system locale", page: "Language" },
-    SettingDef { key: "StatusBarVisible", section: "General", default: "true", kind: ValueKind::Bool, label: "Show status bar", page: "Appearance" },
-    SettingDef { key: "MenuBarInsteadOfToolBar", section: "General", default: "false", kind: ValueKind::Bool, label: "Menu bar instead of tool bar", page: "Appearance" },
-    SettingDef { key: "ToolbarsLocked", section: "General", default: "false", kind: ValueKind::Bool, label: "Lock toolbars", page: "Appearance" },
-    SettingDef { key: "InstSortMode", section: "General", default: "Name", kind: ValueKind::Enum(&["Name", "LastLaunch", "Playtime"]), label: "Sort instances by", page: "General" },
-    SettingDef { key: "EditInstanceOnDoubleClick", section: "General", default: "false", kind: ValueKind::Bool, label: "Edit instance on double-click", page: "Appearance" },
-    SettingDef { key: "ShowGameTime", section: "General", default: "true", kind: ValueKind::Bool, label: "Show game time", page: "Appearance" },
-    SettingDef { key: "ShowGameTimeWithoutDays", section: "General", default: "false", kind: ValueKind::Bool, label: "Show game time without days", page: "Appearance" },
-    SettingDef { key: "RecordGameTime", section: "General", default: "true", kind: ValueKind::Bool, label: "Record game time", page: "Appearance" },
+    SettingDef {
+        key: "ApplicationTheme",
+        section: "General",
+        default: "",
+        kind: ValueKind::Enum(&["", "dark", "light", "system"]),
+        label: "Theme",
+        page: "Appearance",
+    },
+    SettingDef {
+        key: "IconTheme",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Icon theme",
+        page: "Appearance",
+    },
+    SettingDef {
+        key: "Language",
+        section: "General",
+        default: "en_US",
+        kind: ValueKind::Str,
+        label: "Language",
+        page: "Language",
+    },
+    SettingDef {
+        key: "UseSystemLocale",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Use system locale",
+        page: "Language",
+    },
+    SettingDef {
+        key: "StatusBarVisible",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Show status bar",
+        page: "Appearance",
+    },
+    SettingDef {
+        key: "MenuBarInsteadOfToolBar",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Menu bar instead of tool bar",
+        page: "Appearance",
+    },
+    SettingDef {
+        key: "ToolbarsLocked",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Lock toolbars",
+        page: "Appearance",
+    },
+    SettingDef {
+        key: "InstSortMode",
+        section: "General",
+        default: "Name",
+        kind: ValueKind::Enum(&["Name", "LastLaunch", "Playtime"]),
+        label: "Sort instances by",
+        page: "General",
+    },
+    SettingDef {
+        key: "EditInstanceOnDoubleClick",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Edit instance on double-click",
+        page: "Appearance",
+    },
+    SettingDef {
+        key: "ShowGameTime",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Show game time",
+        page: "Appearance",
+    },
+    SettingDef {
+        key: "ShowGameTimeWithoutDays",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Show game time without days",
+        page: "Appearance",
+    },
+    SettingDef {
+        key: "RecordGameTime",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Record game time",
+        page: "Appearance",
+    },
     // ---- Java ----
-    SettingDef { key: "JavaPath", section: "General", default: "", kind: ValueKind::Path, label: "Java path", page: "Java" },
-    SettingDef { key: "JavaDir", section: "General", default: "java", kind: ValueKind::Path, label: "Java directory", page: "Java" },
-    SettingDef { key: "AutomaticJavaSwitch", section: "General", default: "true", kind: ValueKind::Bool, label: "Automatic Java switch", page: "Java" },
-    SettingDef { key: "AutomaticJavaDownload", section: "General", default: "true", kind: ValueKind::Bool, label: "Automatic Java download", page: "Java" },
-    SettingDef { key: "IgnoreJavaCompatibility", section: "General", default: "false", kind: ValueKind::Bool, label: "Ignore Java compatibility", page: "Java" },
-    SettingDef { key: "IgnoreJavaWizard", section: "General", default: "false", kind: ValueKind::Bool, label: "Skip Java wizard", page: "Java" },
-    SettingDef { key: "JvmArgs", section: "General", default: "", kind: ValueKind::Str, label: "JVM arguments", page: "Java" },
+    SettingDef {
+        key: "JavaPath",
+        section: "General",
+        default: "",
+        kind: ValueKind::Path,
+        label: "Java path",
+        page: "Java",
+    },
+    SettingDef {
+        key: "JavaDir",
+        section: "General",
+        default: "java",
+        kind: ValueKind::Path,
+        label: "Java directory",
+        page: "Java",
+    },
+    SettingDef {
+        key: "AutomaticJavaSwitch",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Automatic Java switch",
+        page: "Java",
+    },
+    SettingDef {
+        key: "AutomaticJavaDownload",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Automatic Java download",
+        page: "Java",
+    },
+    SettingDef {
+        key: "IgnoreJavaCompatibility",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Ignore Java compatibility",
+        page: "Java",
+    },
+    SettingDef {
+        key: "IgnoreJavaWizard",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Skip Java wizard",
+        page: "Java",
+    },
+    SettingDef {
+        key: "JvmArgs",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "JVM arguments",
+        page: "Java",
+    },
     // ---- Memory ----
-    SettingDef { key: "MinMemAlloc", section: "General", default: "512", kind: ValueKind::Int, label: "Minimum memory (MB)", page: "Java" },
-    SettingDef { key: "MaxMemAlloc", section: "General", default: "4096", kind: ValueKind::Int, label: "Maximum memory (MB)", page: "Java" },
-    SettingDef { key: "PermGen", section: "General", default: "128", kind: ValueKind::Int, label: "PermGen (MB)", page: "Java" },
-    SettingDef { key: "LowMemWarning", section: "General", default: "true", kind: ValueKind::Bool, label: "Warn on low memory", page: "Java" },
+    SettingDef {
+        key: "MinMemAlloc",
+        section: "General",
+        default: "512",
+        kind: ValueKind::Int,
+        label: "Minimum memory (MB)",
+        page: "Java",
+    },
+    SettingDef {
+        key: "MaxMemAlloc",
+        section: "General",
+        default: "4096",
+        kind: ValueKind::Int,
+        label: "Maximum memory (MB)",
+        page: "Java",
+    },
+    SettingDef {
+        key: "PermGen",
+        section: "General",
+        default: "128",
+        kind: ValueKind::Int,
+        label: "PermGen (MB)",
+        page: "Java",
+    },
+    SettingDef {
+        key: "LowMemWarning",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Warn on low memory",
+        page: "Java",
+    },
     // ---- Console ----
-    SettingDef { key: "ShowConsole", section: "General", default: "false", kind: ValueKind::Bool, label: "Show console", page: "Minecraft" },
-    SettingDef { key: "AutoCloseConsole", section: "General", default: "false", kind: ValueKind::Bool, label: "Auto-close console", page: "Minecraft" },
-    SettingDef { key: "ShowConsoleOnError", section: "General", default: "true", kind: ValueKind::Bool, label: "Show console on error", page: "Minecraft" },
-    SettingDef { key: "LogPrePostOutput", section: "General", default: "true", kind: ValueKind::Bool, label: "Log pre/post output", page: "Proxy" },
-    SettingDef { key: "ConsoleFont", section: "General", default: "", kind: ValueKind::Str, label: "Console font", page: "Proxy" },
-    SettingDef { key: "ConsoleFontSize", section: "General", default: "11", kind: ValueKind::Int, label: "Console font size", page: "Proxy" },
-    SettingDef { key: "ConsoleMaxLines", section: "General", default: "100000", kind: ValueKind::Int, label: "Console max lines", page: "Proxy" },
-    SettingDef { key: "ConsoleOverflowStop", section: "General", default: "true", kind: ValueKind::Bool, label: "Stop on console overflow", page: "Proxy" },
-    SettingDef { key: "CloseAfterLaunch", section: "General", default: "false", kind: ValueKind::Bool, label: "Close launcher after launch", page: "Minecraft" },
+    SettingDef {
+        key: "ShowConsole",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Show console",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "AutoCloseConsole",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Auto-close console",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "ShowConsoleOnError",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Show console on error",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "LogPrePostOutput",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Log pre/post output",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "ConsoleFont",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Console font",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "ConsoleFontSize",
+        section: "General",
+        default: "11",
+        kind: ValueKind::Int,
+        label: "Console font size",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "ConsoleMaxLines",
+        section: "General",
+        default: "100000",
+        kind: ValueKind::Int,
+        label: "Console max lines",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "ConsoleOverflowStop",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Stop on console overflow",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "CloseAfterLaunch",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Close launcher after launch",
+        page: "Minecraft",
+    },
     // ---- Network / proxy ----
-    SettingDef { key: "ProxyType", section: "General", default: "None", kind: ValueKind::Enum(&["None", "Default", "HTTP", "SOCKS5"]), label: "Proxy type", page: "Proxy" },
-    SettingDef { key: "ProxyAddr", section: "General", default: "127.0.0.1", kind: ValueKind::Str, label: "Proxy address", page: "Proxy" },
-    SettingDef { key: "ProxyPort", section: "General", default: "8080", kind: ValueKind::Int, label: "Proxy port", page: "Proxy" },
-    SettingDef { key: "ProxyUser", section: "General", default: "", kind: ValueKind::Str, label: "Proxy user", page: "Proxy" },
-    SettingDef { key: "ProxyPass", section: "General", default: "", kind: ValueKind::Secret, label: "Proxy password", page: "Proxy" },
-    SettingDef { key: "NumberOfConcurrentTasks", section: "General", default: "10", kind: ValueKind::Int, label: "Concurrent tasks", page: "Proxy" },
-    SettingDef { key: "NumberOfConcurrentDownloads", section: "General", default: "6", kind: ValueKind::Int, label: "Concurrent downloads", page: "Proxy" },
-    SettingDef { key: "NumberOfManualRetries", section: "General", default: "1", kind: ValueKind::Int, label: "Manual retries", page: "Proxy" },
-    SettingDef { key: "RequestTimeout", section: "General", default: "60", kind: ValueKind::Int, label: "Request timeout (s)", page: "Proxy" },
-    SettingDef { key: "MetaRefreshOnLaunch", section: "General", default: "true", kind: ValueKind::Bool, label: "Refresh meta on launch", page: "Proxy" },
+    SettingDef {
+        key: "ProxyType",
+        section: "General",
+        default: "None",
+        kind: ValueKind::Enum(&["None", "Default", "HTTP", "SOCKS5"]),
+        label: "Proxy type",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "ProxyAddr",
+        section: "General",
+        default: "127.0.0.1",
+        kind: ValueKind::Str,
+        label: "Proxy address",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "ProxyPort",
+        section: "General",
+        default: "8080",
+        kind: ValueKind::Int,
+        label: "Proxy port",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "ProxyUser",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Proxy user",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "ProxyPass",
+        section: "General",
+        default: "",
+        kind: ValueKind::Secret,
+        label: "Proxy password",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "NumberOfConcurrentTasks",
+        section: "General",
+        default: "10",
+        kind: ValueKind::Int,
+        label: "Concurrent tasks",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "NumberOfConcurrentDownloads",
+        section: "General",
+        default: "6",
+        kind: ValueKind::Int,
+        label: "Concurrent downloads",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "NumberOfManualRetries",
+        section: "General",
+        default: "1",
+        kind: ValueKind::Int,
+        label: "Manual retries",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "RequestTimeout",
+        section: "General",
+        default: "60",
+        kind: ValueKind::Int,
+        label: "Request timeout (s)",
+        page: "Proxy",
+    },
+    SettingDef {
+        key: "MetaRefreshOnLaunch",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Refresh meta on launch",
+        page: "Proxy",
+    },
     // ---- Minecraft ----
-    SettingDef { key: "LaunchMaximized", section: "General", default: "false", kind: ValueKind::Bool, label: "Launch maximized", page: "Minecraft" },
-    SettingDef { key: "MinecraftWinWidth", section: "General", default: "854", kind: ValueKind::Int, label: "Window width", page: "Minecraft" },
-    SettingDef { key: "MinecraftWinHeight", section: "General", default: "480", kind: ValueKind::Int, label: "Window height", page: "Minecraft" },
-    SettingDef { key: "EnableFeralGamemode", section: "General", default: "false", kind: ValueKind::Bool, label: "Feral GameMode", page: "Minecraft" },
-    SettingDef { key: "EnableMangoHud", section: "General", default: "false", kind: ValueKind::Bool, label: "MangoHud", page: "Minecraft" },
-    SettingDef { key: "UseDiscreteGpu", section: "General", default: "false", kind: ValueKind::Bool, label: "Use discrete GPU", page: "Minecraft" },
-    SettingDef { key: "UseZink", section: "General", default: "false", kind: ValueKind::Bool, label: "Use Zink", page: "Minecraft" },
-    SettingDef { key: "OnlineFixes", section: "General", default: "false", kind: ValueKind::Bool, label: "Online fixes", page: "Minecraft" },
-    SettingDef { key: "UseNativeOpenAL", section: "General", default: "false", kind: ValueKind::Bool, label: "Native OpenAL", page: "Minecraft" },
-    SettingDef { key: "UseNativeGLFW", section: "General", default: "false", kind: ValueKind::Bool, label: "Native GLFW", page: "Minecraft" },
-    SettingDef { key: "UseNativeSDL", section: "General", default: "false", kind: ValueKind::Bool, label: "Native SDL", page: "Minecraft" },
-    SettingDef { key: "ModMetadataDisabled", section: "General", default: "false", kind: ValueKind::Bool, label: "Disable mod metadata", page: "Minecraft" },
-    SettingDef { key: "ModDependenciesDisabled", section: "General", default: "false", kind: ValueKind::Bool, label: "Disable mod dependencies", page: "Minecraft" },
-    SettingDef { key: "ShowModIncompat", section: "General", default: "false", kind: ValueKind::Bool, label: "Show mod incompatibilities", page: "Minecraft" },
+    SettingDef {
+        key: "LaunchMaximized",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Launch maximized",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "MinecraftWinWidth",
+        section: "General",
+        default: "854",
+        kind: ValueKind::Int,
+        label: "Window width",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "MinecraftWinHeight",
+        section: "General",
+        default: "480",
+        kind: ValueKind::Int,
+        label: "Window height",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "EnableFeralGamemode",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Feral GameMode",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "EnableMangoHud",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "MangoHud",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "UseDiscreteGpu",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Use discrete GPU",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "UseZink",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Use Zink",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "OnlineFixes",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Online fixes",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "UseNativeOpenAL",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Native OpenAL",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "UseNativeGLFW",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Native GLFW",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "UseNativeSDL",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Native SDL",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "ModMetadataDisabled",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Disable mod metadata",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "ModDependenciesDisabled",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Disable mod dependencies",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "ShowModIncompat",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Show mod incompatibilities",
+        page: "Minecraft",
+    },
     // ---- APIs / tools ----
-    SettingDef { key: "ModrinthToken", section: "General", default: "", kind: ValueKind::Secret, label: "Modrinth token", page: "Services" },
-    SettingDef { key: "CurseForgeAPIKey", section: "General", default: "", kind: ValueKind::Secret, label: "CurseForge API key", page: "Services" },
-    SettingDef { key: "FlameKeyOverride", section: "General", default: "", kind: ValueKind::Secret, label: "CurseForge key override", page: "Services" },
-    SettingDef { key: "MSAClientIDOverride", section: "General", default: "", kind: ValueKind::Str, label: "Microsoft client ID override", page: "Services" },
-    SettingDef { key: "JsonEditor", section: "General", default: "", kind: ValueKind::Path, label: "JSON editor", page: "Services" },
-    SettingDef { key: "MCEditPath", section: "General", default: "", kind: ValueKind::Path, label: "MCEdit path", page: "Tools" },
-    SettingDef { key: "JProfilerPath", section: "General", default: "", kind: ValueKind::Path, label: "JProfiler path", page: "Tools" },
-    SettingDef { key: "JVisualVMPath", section: "General", default: "", kind: ValueKind::Path, label: "JVisualVM path", page: "Tools" },
+    SettingDef {
+        key: "ModrinthToken",
+        section: "General",
+        default: "",
+        kind: ValueKind::Secret,
+        label: "Modrinth token",
+        page: "Services",
+    },
+    SettingDef {
+        key: "CurseForgeAPIKey",
+        section: "General",
+        default: "",
+        kind: ValueKind::Secret,
+        label: "CurseForge API key",
+        page: "Services",
+    },
+    SettingDef {
+        key: "FlameKeyOverride",
+        section: "General",
+        default: "",
+        kind: ValueKind::Secret,
+        label: "CurseForge key override",
+        page: "Services",
+    },
+    SettingDef {
+        key: "MSAClientIDOverride",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Microsoft client ID override",
+        page: "Services",
+    },
+    SettingDef {
+        key: "JsonEditor",
+        section: "General",
+        default: "",
+        kind: ValueKind::Path,
+        label: "JSON editor",
+        page: "Services",
+    },
+    SettingDef {
+        key: "MCEditPath",
+        section: "General",
+        default: "",
+        kind: ValueKind::Path,
+        label: "MCEdit path",
+        page: "Tools",
+    },
+    SettingDef {
+        key: "JProfilerPath",
+        section: "General",
+        default: "",
+        kind: ValueKind::Path,
+        label: "JProfiler path",
+        page: "Tools",
+    },
+    SettingDef {
+        key: "JVisualVMPath",
+        section: "General",
+        default: "",
+        kind: ValueKind::Path,
+        label: "JVisualVM path",
+        page: "Tools",
+    },
     // ---- Custom commands ----
-    SettingDef { key: "WrapperCommand", section: "General", default: "", kind: ValueKind::Str, label: "Wrapper command", page: "Tools" },
-    SettingDef { key: "PreLaunchCommand", section: "General", default: "", kind: ValueKind::Str, label: "Pre-launch command", page: "Tools" },
-    SettingDef { key: "PostExitCommand", section: "General", default: "", kind: ValueKind::Str, label: "Post-exit command", page: "Tools" },
+    SettingDef {
+        key: "WrapperCommand",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Wrapper command",
+        page: "Tools",
+    },
+    SettingDef {
+        key: "PreLaunchCommand",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Pre-launch command",
+        page: "Tools",
+    },
+    SettingDef {
+        key: "PostExitCommand",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Post-exit command",
+        page: "Tools",
+    },
     // ---- Updates ----
-    SettingDef { key: "UpdateChannel", section: "General", default: "stable", kind: ValueKind::Enum(&["stable", "beta"]), label: "Update channel", page: "General" },
-    SettingDef { key: "AutoUpdate", section: "General", default: "false", kind: ValueKind::Bool, label: "Automatically download updates", page: "General" },
-    SettingDef { key: "CheckUpdateOnLaunch", section: "General", default: "true", kind: ValueKind::Bool, label: "Check for updates on launch", page: "General" },
-    SettingDef { key: "LastUpdateCheck", section: "General", default: "", kind: ValueKind::Str, label: "Last update check", page: "General" },
-    SettingDef { key: "SkippedUpdateVersion", section: "General", default: "", kind: ValueKind::Str, label: "Skipped version", page: "General" },
+    SettingDef {
+        key: "UpdateChannel",
+        section: "General",
+        default: "stable",
+        kind: ValueKind::Enum(&["stable", "beta"]),
+        label: "Update channel",
+        page: "General",
+    },
+    SettingDef {
+        key: "AutoUpdate",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Automatically download updates",
+        page: "General",
+    },
+    SettingDef {
+        key: "CheckUpdateOnLaunch",
+        section: "General",
+        default: "true",
+        kind: ValueKind::Bool,
+        label: "Check for updates on launch",
+        page: "General",
+    },
+    SettingDef {
+        key: "LastUpdateCheck",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Last update check",
+        page: "General",
+    },
+    SettingDef {
+        key: "SkippedUpdateVersion",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Skipped version",
+        page: "General",
+    },
     // ---- Paths ----
-    SettingDef { key: "InstanceDir", section: "General", default: "instances", kind: ValueKind::Path, label: "Instances directory", page: "General" },
-    SettingDef { key: "CentralModsDir", section: "General", default: "mods", kind: ValueKind::Path, label: "Central mods directory", page: "General" },
-    SettingDef { key: "IconsDir", section: "General", default: "icons", kind: ValueKind::Path, label: "Icons directory", page: "General" },
-    SettingDef { key: "DownloadsDir", section: "General", default: "", kind: ValueKind::Path, label: "Downloads directory", page: "General" },
-    SettingDef { key: "SkinsDir", section: "General", default: "skins", kind: ValueKind::Path, label: "Skins directory", page: "General" },
-    SettingDef { key: "DownloadsDirWatchRecursive", section: "General", default: "false", kind: ValueKind::Bool, label: "Watch downloads recursively", page: "General" },
-    SettingDef { key: "MoveModsFromDownloadsDir", section: "General", default: "false", kind: ValueKind::Bool, label: "Move mods from downloads", page: "General" },
+    SettingDef {
+        key: "InstanceDir",
+        section: "General",
+        default: "instances",
+        kind: ValueKind::Path,
+        label: "Instances directory",
+        page: "General",
+    },
+    SettingDef {
+        key: "CentralModsDir",
+        section: "General",
+        default: "mods",
+        kind: ValueKind::Path,
+        label: "Central mods directory",
+        page: "General",
+    },
+    SettingDef {
+        key: "IconsDir",
+        section: "General",
+        default: "icons",
+        kind: ValueKind::Path,
+        label: "Icons directory",
+        page: "General",
+    },
+    SettingDef {
+        key: "DownloadsDir",
+        section: "General",
+        default: "",
+        kind: ValueKind::Path,
+        label: "Downloads directory",
+        page: "General",
+    },
+    SettingDef {
+        key: "SkinsDir",
+        section: "General",
+        default: "skins",
+        kind: ValueKind::Path,
+        label: "Skins directory",
+        page: "General",
+    },
+    SettingDef {
+        key: "DownloadsDirWatchRecursive",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Watch downloads recursively",
+        page: "General",
+    },
+    SettingDef {
+        key: "MoveModsFromDownloadsDir",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Move mods from downloads",
+        page: "General",
+    },
 ];
 
 /// Look up a known setting definition by key.
@@ -169,41 +722,244 @@ pub fn pages() -> Vec<&'static str> {
 /// either launcher behaves the same.
 pub const INSTANCE_SETTINGS: &[SettingDef] = &[
     // ---- Java ----
-    SettingDef { key: "JavaPath", section: "General", default: "", kind: ValueKind::Path, label: "Java path", page: "Java" },
-    SettingDef { key: "OverrideJavaLocation", section: "General", default: "false", kind: ValueKind::Bool, label: "Use this Java", page: "Java" },
-    SettingDef { key: "AutomaticJava", section: "General", default: "false", kind: ValueKind::Bool, label: "Automatic Java", page: "Java" },
-    SettingDef { key: "JvmArgs", section: "General", default: "", kind: ValueKind::Str, label: "JVM arguments", page: "Java" },
-    SettingDef { key: "OverrideJavaArgs", section: "General", default: "false", kind: ValueKind::Bool, label: "Override JVM arguments", page: "Java" },
+    SettingDef {
+        key: "JavaPath",
+        section: "General",
+        default: "",
+        kind: ValueKind::Path,
+        label: "Java path",
+        page: "Java",
+    },
+    SettingDef {
+        key: "OverrideJavaLocation",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Use this Java",
+        page: "Java",
+    },
+    SettingDef {
+        key: "AutomaticJava",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Automatic Java",
+        page: "Java",
+    },
+    SettingDef {
+        key: "JvmArgs",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "JVM arguments",
+        page: "Java",
+    },
+    SettingDef {
+        key: "OverrideJavaArgs",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Override JVM arguments",
+        page: "Java",
+    },
     // ---- Memory ----
-    SettingDef { key: "MinMemAlloc", section: "General", default: "512", kind: ValueKind::Int, label: "Minimum memory (MB)", page: "Java" },
-    SettingDef { key: "MaxMemAlloc", section: "General", default: "4096", kind: ValueKind::Int, label: "Maximum memory (MB)", page: "Java" },
-    SettingDef { key: "OverrideMemory", section: "General", default: "false", kind: ValueKind::Bool, label: "Override memory", page: "Memory" },
+    SettingDef {
+        key: "MinMemAlloc",
+        section: "General",
+        default: "512",
+        kind: ValueKind::Int,
+        label: "Minimum memory (MB)",
+        page: "Java",
+    },
+    SettingDef {
+        key: "MaxMemAlloc",
+        section: "General",
+        default: "4096",
+        kind: ValueKind::Int,
+        label: "Maximum memory (MB)",
+        page: "Java",
+    },
+    SettingDef {
+        key: "OverrideMemory",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Override memory",
+        page: "Memory",
+    },
     // ---- Minecraft ----
-    SettingDef { key: "MinecraftWinWidth", section: "General", default: "854", kind: ValueKind::Int, label: "Window width", page: "Minecraft" },
-    SettingDef { key: "MinecraftWinHeight", section: "General", default: "480", kind: ValueKind::Int, label: "Window height", page: "Minecraft" },
-    SettingDef { key: "LaunchMaximized", section: "General", default: "false", kind: ValueKind::Bool, label: "Launch maximized", page: "Minecraft" },
-    SettingDef { key: "OverrideWindow", section: "General", default: "false", kind: ValueKind::Bool, label: "Override window size", page: "Minecraft" },
-    SettingDef { key: "UseNativeOpenAL", section: "General", default: "false", kind: ValueKind::Bool, label: "Native OpenAL", page: "Minecraft" },
-    SettingDef { key: "UseNativeGLFW", section: "General", default: "false", kind: ValueKind::Bool, label: "Native GLFW", page: "Minecraft" },
-    SettingDef { key: "UseNativeSDL", section: "General", default: "false", kind: ValueKind::Bool, label: "Native SDL", page: "Minecraft" },
-    SettingDef { key: "OnlineFixes", section: "General", default: "false", kind: ValueKind::Bool, label: "Online fixes", page: "Minecraft" },
+    SettingDef {
+        key: "MinecraftWinWidth",
+        section: "General",
+        default: "854",
+        kind: ValueKind::Int,
+        label: "Window width",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "MinecraftWinHeight",
+        section: "General",
+        default: "480",
+        kind: ValueKind::Int,
+        label: "Window height",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "LaunchMaximized",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Launch maximized",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "OverrideWindow",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Override window size",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "UseNativeOpenAL",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Native OpenAL",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "UseNativeGLFW",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Native GLFW",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "UseNativeSDL",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Native SDL",
+        page: "Minecraft",
+    },
+    SettingDef {
+        key: "OnlineFixes",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Online fixes",
+        page: "Minecraft",
+    },
     // ---- Server / world ----
-    SettingDef { key: "JoinServerOnLaunch", section: "General", default: "false", kind: ValueKind::Bool, label: "Join a server on launch", page: "Server" },
-    SettingDef { key: "JoinServerOnLaunchAddress", section: "General", default: "", kind: ValueKind::Str, label: "Server address", page: "Server" },
-    SettingDef { key: "JoinWorldOnLaunch", section: "General", default: "", kind: ValueKind::Str, label: "World to join", page: "Server" },
+    SettingDef {
+        key: "JoinServerOnLaunch",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Join a server on launch",
+        page: "Server",
+    },
+    SettingDef {
+        key: "JoinServerOnLaunchAddress",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Server address",
+        page: "Server",
+    },
+    SettingDef {
+        key: "JoinWorldOnLaunch",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "World to join",
+        page: "Server",
+    },
     // ---- Account ----
-    SettingDef { key: "UseAccountForInstance", section: "General", default: "false", kind: ValueKind::Bool, label: "Use a specific account", page: "Account" },
-    SettingDef { key: "InstanceAccountId", section: "General", default: "", kind: ValueKind::Str, label: "Account UUID", page: "Account" },
+    SettingDef {
+        key: "UseAccountForInstance",
+        section: "General",
+        default: "false",
+        kind: ValueKind::Bool,
+        label: "Use a specific account",
+        page: "Account",
+    },
+    SettingDef {
+        key: "InstanceAccountId",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Account UUID",
+        page: "Account",
+    },
     // ---- Commands / environment ----
-    SettingDef { key: "PreLaunchCommand", section: "General", default: "", kind: ValueKind::Str, label: "Pre-launch command", page: "Tools" },
-    SettingDef { key: "PostExitCommand", section: "General", default: "", kind: ValueKind::Str, label: "Post-exit command", page: "Tools" },
-    SettingDef { key: "WrapperCommand", section: "General", default: "", kind: ValueKind::Str, label: "Wrapper command", page: "Tools" },
-    SettingDef { key: "EnvVars", section: "General", default: "", kind: ValueKind::Str, label: "Environment variables", page: "Commands" },
+    SettingDef {
+        key: "PreLaunchCommand",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Pre-launch command",
+        page: "Tools",
+    },
+    SettingDef {
+        key: "PostExitCommand",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Post-exit command",
+        page: "Tools",
+    },
+    SettingDef {
+        key: "WrapperCommand",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Wrapper command",
+        page: "Tools",
+    },
+    SettingDef {
+        key: "EnvVars",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Environment variables",
+        page: "Commands",
+    },
     // ---- Export ----
-    SettingDef { key: "ExportName", section: "General", default: "", kind: ValueKind::Str, label: "Export name", page: "Export" },
-    SettingDef { key: "ExportVersion", section: "General", default: "1.0.0", kind: ValueKind::Str, label: "Export version", page: "Export" },
-    SettingDef { key: "ExportSummary", section: "General", default: "", kind: ValueKind::Str, label: "Export summary", page: "Export" },
-    SettingDef { key: "ExportAuthor", section: "General", default: "", kind: ValueKind::Str, label: "Export author", page: "Export" },
+    SettingDef {
+        key: "ExportName",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Export name",
+        page: "Export",
+    },
+    SettingDef {
+        key: "ExportVersion",
+        section: "General",
+        default: "1.0.0",
+        kind: ValueKind::Str,
+        label: "Export version",
+        page: "Export",
+    },
+    SettingDef {
+        key: "ExportSummary",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Export summary",
+        page: "Export",
+    },
+    SettingDef {
+        key: "ExportAuthor",
+        section: "General",
+        default: "",
+        kind: ValueKind::Str,
+        label: "Export author",
+        page: "Export",
+    },
 ];
 
 /// The pages of the per-instance settings window.
@@ -305,7 +1061,12 @@ impl IniFile {
     pub fn section_of(&self, key: &str) -> Option<String> {
         self.order
             .iter()
-            .find(|s| self.sections.get(*s).map(|m| m.contains_key(key)).unwrap_or(false))
+            .find(|s| {
+                self.sections
+                    .get(*s)
+                    .map(|m| m.contains_key(key))
+                    .unwrap_or(false)
+            })
             .cloned()
     }
 
@@ -361,8 +1122,7 @@ impl GlobalSettings {
     pub fn apply_defaults(&mut self) {
         for def in SETTINGS {
             if self.ini.find(def.key).is_none() && !def.default.is_empty() {
-                self.ini
-                    .set(def.section, def.key, def.default);
+                self.ini.set(def.section, def.key, def.default);
             }
         }
     }
@@ -377,11 +1137,7 @@ impl GlobalSettings {
             Some(v) if !v.is_empty() => v,
             _ => {
                 let def = setting_def(key).map(|d| d.default).unwrap_or("");
-                if def.is_empty() {
-                    default
-                } else {
-                    def
-                }
+                if def.is_empty() { default } else { def }
             }
         }
     }
@@ -421,7 +1177,9 @@ impl GlobalSettings {
     // ---- Frequently used typed accessors ----
 
     pub fn theme(&self) -> &str {
-        let def = setting_def("ApplicationTheme").map(|d| d.default).unwrap_or("");
+        let def = setting_def("ApplicationTheme")
+            .map(|d| d.default)
+            .unwrap_or("");
         self.get("ApplicationTheme").unwrap_or(def)
     }
 
@@ -494,10 +1252,10 @@ impl GlobalSettings {
     /// variable (which the upstream launcher also honours).
     pub fn curseforge_api_key(&self) -> Option<String> {
         for key in ["CurseForgeAPIKey", "FlameKeyOverride"] {
-            if let Some(v) = self.get(key) {
-                if !v.trim().is_empty() {
-                    return Some(v.trim().to_string());
-                }
+            if let Some(v) = self.get(key)
+                && !v.trim().is_empty()
+            {
+                return Some(v.trim().to_string());
             }
         }
         std::env::var("CF_API_KEY")
@@ -520,11 +1278,18 @@ impl GlobalSettings {
         match kind {
             "None" => None,
             "Default" => {
-                for key in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"] {
-                    if let Ok(v) = std::env::var(key) {
-                        if !v.trim().is_empty() {
-                            return Some(v);
-                        }
+                for key in [
+                    "HTTPS_PROXY",
+                    "https_proxy",
+                    "HTTP_PROXY",
+                    "http_proxy",
+                    "ALL_PROXY",
+                    "all_proxy",
+                ] {
+                    if let Ok(v) = std::env::var(key)
+                        && !v.trim().is_empty()
+                    {
+                        return Some(v);
                     }
                 }
                 None
@@ -572,15 +1337,22 @@ mod tests {
         fs::write(td.path().join("prismlauncher.cfg"), cfg).unwrap();
 
         let mut s = GlobalSettings::load(td.path());
-        s.ini.set("UI", "mods_Page\\ColumnsVisibility", "{\"Image\":true}");
+        s.ini
+            .set("UI", "mods_Page\\ColumnsVisibility", "{\"Image\":true}");
         s.save().unwrap();
 
         let text = fs::read_to_string(td.path().join("prismlauncher.cfg")).unwrap();
         assert!(text.contains("[UI]"), "{text}");
-        assert!(text.contains("mods_Page\\ColumnsVisibility={\"Image\":true}"), "{text}");
+        assert!(
+            text.contains("mods_Page\\ColumnsVisibility={\"Image\":true}"),
+            "{text}"
+        );
 
         let s2 = GlobalSettings::load(td.path());
-        assert_eq!(s2.ini.get("UI", "mods_Page\\ColumnsVisibility"), Some("{\"Image\":true}"));
+        assert_eq!(
+            s2.ini.get("UI", "mods_Page\\ColumnsVisibility"),
+            Some("{\"Image\":true}")
+        );
     }
 
     #[test]
@@ -615,7 +1387,10 @@ mod tests {
         s.set_int("ProxyPort", 3128);
         s.set("ProxyUser", "u");
         s.set("ProxyPass", "p");
-        assert_eq!(s.proxy_url().as_deref(), Some("http://u:p@proxy.local:3128"));
+        assert_eq!(
+            s.proxy_url().as_deref(),
+            Some("http://u:p@proxy.local:3128")
+        );
         s.set("ProxyType", "SOCKS5");
         s.set("ProxyUser", "");
         s.set("ProxyPass", "");
