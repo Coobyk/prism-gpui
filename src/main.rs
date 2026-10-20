@@ -486,11 +486,18 @@ impl Render for MainWindow {
                                 let account = crate::accounts::AccountStore::load(&this.data_root)
                                     .active_account()
                                     .cloned();
-                                let (uuid, name) = match account {
-                                    Some(a) => (Some(a.uuid), a.username),
-                                    None => (None, "no account".to_string()),
+                                let (uuid, name, token) = match account {
+                                    Some(a) => (Some(a.uuid), a.username, a.access_token),
+                                    None => (None, "no account".to_string(), String::new()),
                                 };
-                                ui::open_skin(uuid, name, this.theme, cx);
+                                ui::open_skin(
+                                    uuid,
+                                    name,
+                                    this.theme,
+                                    this.data_root.clone(),
+                                    token,
+                                    cx,
+                                );
                             })),
                     )
                     .child(

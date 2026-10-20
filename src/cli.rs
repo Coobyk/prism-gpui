@@ -127,6 +127,136 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             }
             Ok(())
         }
+        Some("skin") => {
+            let sub = args.get(1).map(|s| s.as_str()).unwrap_or("list");
+            let store = crate::accounts::AccountStore::load(data_root);
+            let account = store
+                .active_account()
+                .cloned()
+                .ok_or("no active account (sign in with `login` first)")?;
+            match sub {
+                "list" => {
+                    println!("local skins:");
+                    for p in crate::skin::list_local_skins(data_root) {
+                        println!("  {}", p.display());
+                    }
+                    if account.access_token.is_empty() {
+                        println!("(sign in with a Microsoft account to list Mojang skins)");
+                        return Ok(());
+                    }
+                    let skins = crate::skin::list_skins(&account.access_token)?;
+                    println!("mojang skins:");
+                    for s in skins {
+                        println!(
+                            "  {:<12} {:<8} {}",
+                            s.id,
+                            s.state,
+                            s.variant.unwrap_or_default()
+                        );
+                    }
+                    Ok(())
+                }
+                "install" => {
+                    let file = args.get(2).ok_or("usage: skin install <file.png>")?;
+                    let installed = crate::skin::install_skin(data_root, Path::new(file))?;
+                    println!("installed {}", installed.display());
+                    Ok(())
+                }
+                "upload" => {
+                    let file = args.get(2).ok_or("usage: skin upload <file.png> [classic|slim]")?;
+                    let variant = match args.get(3).map(|s| s.as_str()) {
+                        Some("slim") => crate::skin::SkinVariant::Slim,
+                        Some("classic") | None => crate::skin::SkinVariant::Classic,
+                        Some(other) => return Err(format!("unknown variant: {other}")),
+                    };
+                    let png = std::fs::read(file).map_err(|e| e.to_string())?;
+                    crate::skin::upload_skin(&account.access_token, &png, variant)?;
+                    println!("uploaded {file} ({})", variant.as_str());
+                    Ok(())
+                }
+                "reset" => {
+                    crate::skin::reset_skin(&account.access_token)?;
+                    println!("skin reset to default");
+                    Ok(())
+                }
+                "activate" => {
+                    let id = args.get(2).ok_or("usage: skin activate <skin-id>")?;
+                    crate::skin::activate_skin(&account.access_token, id)?;
+                    println!("activated skin {id}");
+                    Ok(())
+                }
+                other => Err(format!("unknown skin command: {other}")),
+            }
+        }
+        Some("skins") => {
+            let store = crate::accounts::AccountStore::load(data_root);
+            let Some(account) = store.active_account().cloned() else {
+                return Err("no active account".into());
+            };
+            let skins = crate::skin::list_skins(&account.access_token)?;
+            if skins.is_empty() {
+                println!("(no skins on this account)");
+            }
+            for skin in skins {
+                println!(
+                    "{:<36} {:<8} {}",
+                    skin.id,
+                    skin.variant.unwrap_or_default(),
+                    skin.state
+                );
+            }
+            Ok(())
+        }
+        Some("skin-upload") => {
+            let path = args.get(1).ok_or("usage: skin-upload <file.png> [classic|slim]")?;
+            let variant = crate::skin::SkinVariant::from_str(
+                args.get(2).map(|s| s.as_str()).unwrap_or("classic"),
+            );
+            let store = crate::accounts::AccountStore::load(data_root);
+            let Some(account) = store.active_account().cloned() else {
+                return Err("no active account".into());
+            };
+            let file = Path::new(path);
+            crate::skin::validate_skin_file(file)?;
+            let png = std::fs::read(file).map_err(|e| e.to_string())?;
+            crate::skin::upload_skin(&account.access_token, &png, variant)?;
+            println!("uploaded {} as {}", file.display(), variant.as_str());
+            Ok(())
+        }
+        Some("skin-reset") => {
+            let store = crate::accounts::AccountStore::load(data_root);
+            let Some(account) = store.active_account().cloned() else {
+                return Err("no active account".into());
+            };
+            crate::skin::reset_skin(&account.access_token)?;
+            println!("skin reset to the default");
+            Ok(())
+        }
+        Some("skin-activate") => {
+            let id = args.get(1).ok_or("usage: skin-activate <skin-id>")?;
+            let store = crate::accounts::AccountStore::load(data_root);
+            let Some(account) = store.active_account().cloned() else {
+                return Err("no active account".into());
+            };
+            crate::skin::activate_skin(&account.access_token, id)?;
+            println!("activated skin {id}");
+            Ok(())
+        }
+        Some("skin-local") => {
+            if let Some(path) = args.get(1) {
+                let installed = crate::skin::install_skin(data_root, Path::new(path))?;
+                println!("installed {}", installed.display());
+            } else {
+                let skins = crate::skin::list_local_skins(data_root);
+                if skins.is_empty() {
+                    println!("(no local skins)");
+                }
+                for skin in skins {
+                    println!("{}", skin.display());
+                }
+            }
+            Ok(())
+        }
         Some("logout") => {
             let uuid = args.get(1).ok_or("usage: logout <uuid|username>")?;
             let mut store = crate::accounts::AccountStore::load(data_root);
@@ -751,6 +881,12 @@ fn print_help() {
     println!("  add-offline <name>  add an offline account");
     println!("  accounts          list saved accounts");
     println!("  logout <uuid|name>  remove an account");
+    println!("  skins               list the account's Mojang skins");
+    println!("  skin-upload <file.png> [classic|slim]  upload a skin");
+    println!("  skin-reset          restore the default skin");
+    println!("  skin-activate <id>  activate a stored skin");
+    println!("  skin-local [file]   list or install local skins");
+    println!("  skin list|install|upload|reset|activate  manage skins");
     println!("  set-component <instance> <uid> <version>  change a component version");
     println!("  settings [list|get <k>|set <k> <v>]  read/write global settings");
     println!("  install-url <instance> <url>  download a mod directly into mods/");

@@ -1568,6 +1568,18 @@ pub struct SkinView {
     image: Option<Arc<Image>>,
     status: SharedString,
     theme: Theme,
+    /// Data root, used for the local skin library.
+    data_root: PathBuf,
+    /// Access token of the signed-in account (empty for offline accounts).
+    access_token: String,
+    /// Skins stored on the Mojang profile.
+    mojang_skins: Vec<crate::skin::MojangSkin>,
+    /// Skins kept in the launcher's local library.
+    local_skins: Vec<PathBuf>,
+    /// The model a newly uploaded skin uses.
+    variant: crate::skin::SkinVariant,
+    /// Set after the first click on "Reset", which then really resets.
+    pending_reset: bool,
 }
 
 impl SkinView {
@@ -1575,14 +1587,23 @@ impl SkinView {
         uuid: Option<String>,
         username: String,
         theme: Theme,
+        data_root: PathBuf,
+        access_token: String,
         cx: &mut Context<Self>,
     ) -> Self {
+        let local_skins = crate::skin::list_local_skins(&data_root);
         let mut v = Self {
             uuid: uuid.clone(),
             username: username.into(),
             image: None,
             status: "Loading skin…".into(),
             theme,
+            data_root,
+            access_token,
+            mojang_skins: Vec::new(),
+            local_skins,
+            variant: crate::skin::SkinVariant::Classic,
+            pending_reset: false,
         };
         if let Some(uuid) = uuid {
             cx.spawn(async move |this, cx| {
@@ -1607,20 +1628,340 @@ impl SkinView {
         } else {
             v.status = "No account signed in".into();
         }
+        // Load the account's skin list in the background.
+        v.load_mojang_skins(cx);
         v
+    }
+
+    /// Load the account's Mojang skins in the background.
+    fn load_mojang_skins(&mut self, cx: &mut Context<Self>) {
+        if self.access_token.is_empty() {
+            return;
+        }
+        let token = self.access_token.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::skin::list_skins(&token) })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(skins) => this.mojang_skins = skins,
+                    Err(e) => this.status = format!("Could not load skins: {e}").into(),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Pick a skin PNG and upload it to Mojang.
+    fn upload_skin(&mut self, cx: &mut Context<Self>) {
+        if self.access_token.is_empty() {
+            self.status = "Sign in with a Microsoft account to upload skins".into();
+            cx.notify();
+            return;
+        }
+        let token = self.access_token.clone();
+        let variant = self.variant;
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Select a skin texture".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.first().cloned() else {
+                return;
+            };
+            let name = path.display().to_string();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let png = std::fs::read(&path).map_err(|e| e.to_string())?;
+                    crate::skin::upload_skin(&token, &png, variant)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = match result {
+                    Ok(()) => format!("Uploaded {name}").into(),
+                    Err(e) => format!("Upload failed: {e}").into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Restore the default skin. The first click arms the action.
+    fn reset_skin(&mut self, cx: &mut Context<Self>) {
+        if self.access_token.is_empty() {
+            self.status = "Sign in with a Microsoft account to change skins".into();
+            cx.notify();
+            return;
+        }
+        if !self.pending_reset {
+            self.pending_reset = true;
+            self.status = "Click Reset again to restore the default skin".into();
+            cx.notify();
+            return;
+        }
+        self.pending_reset = false;
+        let token = self.access_token.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::skin::reset_skin(&token) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = match result {
+                    Ok(()) => "Skin reset to the default".into(),
+                    Err(e) => format!("Reset failed: {e}").into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Activate one of the account's skins.
+    fn activate_skin(&mut self, skin_id: String, cx: &mut Context<Self>) {
+        let token = self.access_token.clone();
+        let skin_id_for_task = skin_id.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::skin::activate_skin(&token, &skin_id_for_task) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = match result {
+                    Ok(()) => format!("Activated skin {skin_id}").into(),
+                    Err(e) => format!("Could not activate skin: {e}").into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Install a skin file into the local library.
+    fn install_local_skin(&mut self, cx: &mut Context<Self>) {
+        let root = self.data_root.clone();
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Select a skin texture".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.first().cloned() else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::skin::install_skin(&root, &path) })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(installed) => {
+                        this.local_skins = crate::skin::list_local_skins(&this.data_root);
+                        this.status = format!("Installed {}", installed.display()).into();
+                    }
+                    Err(e) => this.status = format!("Could not install skin: {e}").into(),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Upload a skin from the local library.
+    fn upload_local_skin(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.access_token.is_empty() {
+            self.status = "Sign in with a Microsoft account to upload skins".into();
+            cx.notify();
+            return;
+        }
+        let token = self.access_token.clone();
+        let variant = self.variant;
+        let shown = path.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let png = std::fs::read(&path).map_err(|e| e.to_string())?;
+                    crate::skin::upload_skin(&token, &png, variant)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = match result {
+                    Ok(()) => format!("Uploaded {}", shown.display()).into(),
+                    Err(e) => format!("Upload failed: {e}").into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+}
+
+
+impl SkinView {
+    /// Reload the account's skin list from Mojang.
+    fn refresh_mojang_skins(&mut self, cx: &mut Context<Self>) {
+        if self.access_token.is_empty() {
+            return;
+        }
+        let token = self.access_token.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::skin::list_skins(&token) })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(skins) => this.mojang_skins = skins,
+                    Err(e) => this.status = format!("Could not list skins: {e}").into(),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Upload a skin file to the Mojang account.
+    fn upload(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.access_token.is_empty() {
+            self.status = "Sign in with a Microsoft account to upload skins".into();
+            cx.notify();
+            return;
+        }
+        let token = self.access_token.clone();
+        let variant = self.variant;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let png = std::fs::read(&path).map_err(|e| e.to_string())?;
+                    crate::skin::upload_skin(&token, &png, variant)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = match result {
+                    Ok(()) => "Skin uploaded".into(),
+                    Err(e) => format!("Upload failed: {e}").into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Restore the default skin. The first click arms the action.
+    fn reset(&mut self, cx: &mut Context<Self>) {
+        if self.access_token.is_empty() {
+            self.status = "Sign in with a Microsoft account to change skins".into();
+            cx.notify();
+            return;
+        }
+        if !self.pending_reset {
+            self.pending_reset = true;
+            self.status = "Click Reset again to restore the default skin".into();
+            cx.notify();
+            return;
+        }
+        self.pending_reset = false;
+        let token = self.access_token.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::skin::reset_skin(&token) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = match result {
+                    Ok(()) => "Skin reset to the default".into(),
+                    Err(e) => format!("Reset failed: {e}").into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Activate one of the account's skins.
+    fn activate(&mut self, id: String, cx: &mut Context<Self>) {
+        let token = self.access_token.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::skin::activate_skin(&token, &id) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = match result {
+                    Ok(()) => "Skin activated".into(),
+                    Err(e) => format!("Could not activate skin: {e}").into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Pick a skin file to upload.
+    fn pick_skin(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Select a skin texture".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                if let Some(path) = paths.first() {
+                    let path = path.clone();
+                    this.update(cx, |this, cx| {
+                        match crate::skin::validate_skin_file(&path) {
+                            Ok(_) => this.upload(path, cx),
+                            Err(e) => {
+                                this.status = format!("Not a valid skin: {e}").into();
+                                cx.notify();
+                            }
+                        }
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
     }
 }
 
 impl Render for SkinView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let content = match self.image.clone() {
+        let preview = match self.image.clone() {
             Some(image) => div()
                 .flex_1()
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(img(image).h(px(480.)))
+                .child(img(image).h(px(420.)))
                 .into_any_element(),
             None => div()
                 .flex_1()
@@ -1631,6 +1972,235 @@ impl Render for SkinView {
                 .child(self.status.clone())
                 .into_any_element(),
         };
+
+        // Actions: upload a skin file, toggle the model, reset the skin.
+        let variant_label = match self.variant {
+            crate::skin::SkinVariant::Classic => "Classic (Steve)",
+            crate::skin::SkinVariant::Slim => "Slim (Alex)",
+        };
+        let actions = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .p_3()
+            .bg(rgb(theme.surface))
+            .border_t_1()
+            .border_color(rgb(theme.border))
+            .child(
+                div()
+                    .id("skin-upload")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(rgb(theme.accent))
+                    .text_color(rgb(theme.on_accent))
+                    .cursor_pointer()
+                    .child("Upload skin…")
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                        this.upload_skin(cx);
+                    })),
+            )
+            .child(
+                div()
+                    .id("skin-model")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(rgb(theme.surface))
+                    .border_1()
+                    .border_color(rgb(theme.border))
+                    .cursor_pointer()
+                    .child(variant_label)
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                        this.variant = match this.variant {
+                            crate::skin::SkinVariant::Classic => crate::skin::SkinVariant::Slim,
+                            crate::skin::SkinVariant::Slim => crate::skin::SkinVariant::Classic,
+                        };
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .id("skin-reset")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(if self.pending_reset {
+                        rgb(0x9e3b3b)
+                    } else {
+                        rgb(theme.surface)
+                    })
+                    .text_color(if self.pending_reset {
+                        rgb(0xffffff)
+                    } else {
+                        rgb(theme.text)
+                    })
+                    .border_1()
+                    .border_color(rgb(theme.border))
+                    .cursor_pointer()
+                    .child(if self.pending_reset {
+                        "Really reset?"
+                    } else {
+                        "Reset skin"
+                    })
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                        this.reset_skin(cx);
+                    })),
+            )
+            .child(
+                div()
+                    .id("skin-install-local")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(rgb(theme.surface))
+                    .border_1()
+                    .border_color(rgb(theme.border))
+                    .cursor_pointer()
+                    .child("Add to library…")
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                        this.install_local_skin(cx);
+                    })),
+            )
+            .child(
+                div()
+                    .id("skin-refresh")
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(rgb(theme.surface))
+                    .border_1()
+                    .border_color(rgb(theme.border))
+                    .cursor_pointer()
+                    .child("Refresh")
+                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                        this.load_mojang_skins(cx);
+                    })),
+            );
+
+        // The account's skins and the local library.
+        let mut lists: Vec<AnyElement> = Vec::new();
+        if !self.mojang_skins.is_empty() {
+            lists.push(
+                div()
+                    .text_sm()
+                    .text_color(rgb(theme.subtext))
+                    .child("Mojang skins")
+                    .into_any_element(),
+            );
+            for skin in self.mojang_skins.clone() {
+                let id = skin.id.clone();
+                let e = cx.entity();
+                lists.push(
+                    div()
+                        .id(gpui::ElementId::Name(SharedString::from(format!(
+                            "mojang-skin-{id}"
+                        ))))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .px_3()
+                        .py_1()
+                        .border_b_1()
+                        .border_color(rgb(theme.border))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(div().text_sm().child(id.clone()))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(theme.subtext))
+                                        .child(format!(
+                                            "{} · {}",
+                                            skin.state,
+                                            skin.variant.unwrap_or_default()
+                                        )),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(gpui::ElementId::Name(SharedString::from(format!(
+                                    "activate-{id}"
+                                ))))
+                                .px_2()
+                                .py_1()
+                                .rounded_md()
+                                .cursor_pointer()
+                                .bg(rgb(theme.surface))
+                                .border_1()
+                                .border_color(rgb(theme.border))
+                                .child("Use")
+                                .on_click(move |_, _, cx| {
+                                    e.update(cx, |this, cx| this.activate_skin(id.clone(), cx));
+                                }),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+        if !self.local_skins.is_empty() {
+            lists.push(
+                div()
+                    .text_sm()
+                    .text_color(rgb(theme.subtext))
+                    .child("Local library")
+                    .into_any_element(),
+            );
+            for skin in self.local_skins.clone() {
+                let path = skin.clone();
+                let e = cx.entity();
+                let name = skin
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                lists.push(
+                    div()
+                        .id(gpui::ElementId::Name(SharedString::from(format!(
+                            "local-skin-{name}"
+                        ))))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .px_3()
+                        .py_1()
+                        .border_b_1()
+                        .border_color(rgb(theme.border))
+                        .child(div().text_sm().child(name.clone()))
+                        .child(
+                            div()
+                                .id(gpui::ElementId::Name(SharedString::from(format!(
+                                    "upload-local-{name}"
+                                ))))
+                                .px_2()
+                                .py_1()
+                                .rounded_md()
+                                .cursor_pointer()
+                                .bg(rgb(theme.surface))
+                                .border_1()
+                                .border_color(rgb(theme.border))
+                                .child("Upload")
+                                .on_click(move |_, _, cx| {
+                                    let p = path.clone();
+                                    e.update(cx, |this, cx| this.upload_local_skin(p, cx));
+                                }),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+        let side = div()
+            .id("skin-side")
+            .w(px(280.))
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .border_l_1()
+            .border_color(rgb(theme.border))
+            .overflow_y_scroll()
+            .children(lists);
+
         div()
             .flex()
             .flex_col()
@@ -1655,7 +2225,15 @@ impl Render for SkinView {
                             .child(self.status.clone()),
                     ),
             )
-            .child(content)
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .overflow_hidden()
+                    .child(preview)
+                    .child(side),
+            )
+            .child(actions)
     }
 }
 
@@ -1663,6 +2241,8 @@ pub fn open_skin(
     uuid: Option<String>,
     username: String,
     theme: Theme,
+    data_root: PathBuf,
+    access_token: String,
     cx: &mut App,
 ) -> Option<gpui::WindowHandle<SkinView>> {
     let bounds = Bounds::centered(None, size(px(420.), px(600.)), cx);
@@ -1675,7 +2255,18 @@ pub fn open_skin(
             }),
             ..Default::default()
         },
-        move |_, cx| cx.new(|cx| SkinView::new(uuid.clone(), username.clone(), theme, cx)),
+        move |_, cx| {
+            cx.new(|cx| {
+                SkinView::new(
+                    uuid.clone(),
+                    username.clone(),
+                    theme,
+                    data_root.clone(),
+                    access_token.clone(),
+                    cx,
+                )
+            })
+        },
     )
     .ok()
 }
