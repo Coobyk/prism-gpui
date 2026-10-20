@@ -57,6 +57,9 @@ pub struct VersionJson {
     pub traits: Vec<String>,
     #[serde(default, rename = "+agents")]
     pub agents: Vec<Agent>,
+    /// Mojang's `downloads` block (client/server jars).
+    #[serde(default)]
+    pub downloads: Option<MojangDownloads>,
     #[serde(default)]
     pub order: i32,
     #[serde(default)]
@@ -160,6 +163,15 @@ pub struct Downloads {
     pub artifact: Option<Artifact>,
     #[serde(default)]
     pub classifiers: std::collections::BTreeMap<String, Artifact>,
+}
+
+/// Mojang's top-level `downloads` block: the vanilla client and server jars.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MojangDownloads {
+    #[serde(default)]
+    pub client: Option<Artifact>,
+    #[serde(default)]
+    pub server: Option<Artifact>,
 }
 
 /// The current platform's Mojang OS name.
@@ -445,7 +457,64 @@ pub fn ensure_minecraft(data_root: &Path, version: &str) -> Result<usize, String
             n += 1;
         }
     }
+    // The client jar lives with the other Mojang libraries so every instance of
+    // the same version shares it (Prism uses the same download).
+    if ensure_vanilla_client(data_root, &json)? {
+        n += 1;
+    }
     Ok(n)
+}
+
+/// Path of the shared vanilla client jar for a version.
+pub fn vanilla_client_jar(data_root: &Path, version: &str) -> std::path::PathBuf {
+    data_root
+        .join("libraries")
+        .join("com")
+        .join("mojang")
+        .join("minecraft")
+        .join(version)
+        .join(format!("minecraft-{version}-client.jar"))
+}
+
+/// Download the vanilla client jar if it is missing. Returns `true` when a
+/// download happened.
+pub fn ensure_vanilla_client(data_root: &Path, version: &VersionJson) -> Result<bool, String> {
+    let Some(client) = version.downloads.as_ref().and_then(|d| d.client.as_ref()) else {
+        return Ok(false);
+    };
+    if client.url.is_empty() {
+        return Ok(false);
+    }
+    let dest = vanilla_client_jar(data_root, &version.id);
+    if dest.is_file() {
+        return Ok(false);
+    }
+    crate::net::download_verified(&client.url, &dest, Some(&client.sha1))?;
+    Ok(true)
+}
+
+/// Ensure every asset object referenced by a version's asset index is present.
+pub fn ensure_all_assets(data_root: &Path, version: &str) -> Result<usize, String> {
+    let path = data_root.join("meta").join("net.minecraft").join(format!("{version}.json"));
+    let json = read_version_json(&path).ok_or_else(|| format!("no metadata for {version}"))?;
+    let Some(index) = ensure_asset_index(data_root, &json)? else {
+        return Ok(0);
+    };
+    ensure_assets(data_root, &index, None)
+}
+
+/// Path of the vanilla client jar used on an instance's classpath.
+///
+/// Prism keeps the jar in the shared library cache; older MultiMC layouts kept
+/// a copy inside the instance. Both work, so use the instance copy when present
+/// and fall back to the shared one.
+pub fn client_jar_for(inst_dir: &Path, data_root: &Path, version: &str) -> std::path::PathBuf {
+    let local = inst_dir.join("minecraft").join("client.jar");
+    if local.is_file() {
+        local
+    } else {
+        vanilla_client_jar(data_root, version)
+    }
 }
 
 /// List Minecraft versions from Mojang's manifest (newest first).
@@ -636,29 +705,75 @@ pub fn ensure_assets(
     index_path: &Path,
     limit: Option<usize>,
 ) -> Result<usize, String> {
+    // Fetch several objects at once, like Prism's NetJob with
+    // `NumberOfConcurrentDownloads` workers.
+    let workers = crate::settings::GlobalSettings::load(data_root)
+        .get_int("NumberOfConcurrentDownloads")
+        .clamp(1, 16) as usize;
+    ensure_assets_with_workers(data_root, index_path, limit, workers)
+}
+
+/// Concurrent variant of [`ensure_assets`], used by tests and callers that
+/// already know how many workers they want.
+pub fn ensure_assets_with_workers(
+    data_root: &Path,
+    index_path: &Path,
+    limit: Option<usize>,
+    workers: usize,
+) -> Result<usize, String> {
     let text = std::fs::read_to_string(index_path).map_err(|e| e.to_string())?;
     let index: AssetIndexFile = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     let objects_dir = data_root.join("assets").join("objects");
-    let mut downloaded = 0;
-    for obj in index.objects.values() {
-        if let Some(l) = limit {
-            if downloaded >= l {
-                break;
-            }
-        }
-        let sub = &obj.hash[..2];
-        let dest = objects_dir.join(sub).join(&obj.hash);
-        if dest.is_file() {
-            continue;
-        }
-        let url = format!(
-            "https://resources.download.minecraft.net/{}/{}",
-            sub, obj.hash
-        );
-        crate::net::download_verified(&url, &dest, Some(&obj.hash))?;
-        downloaded += 1;
+    let todo: Vec<String> = index
+        .objects
+        .values()
+        .map(|o| o.hash.clone())
+        .filter(|h| {
+            h.len() > 2 && !objects_dir.join(&h[..2]).join(h).is_file()
+        })
+        .take(limit.unwrap_or(usize::MAX))
+        .collect();
+    if todo.is_empty() {
+        return Ok(0);
     }
-    Ok(downloaded)
+
+    let workers = workers.clamp(1, 16).min(todo.len());
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let downloaded = std::sync::atomic::AtomicUsize::new(0);
+    let error: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let Some(hash) = todo.get(i) else { break };
+                if error.lock().map(|e| e.is_some()).unwrap_or(true) {
+                    break;
+                }
+                let sub = &hash[..2];
+                let dest = objects_dir.join(sub).join(hash);
+                let url = format!("https://resources.download.minecraft.net/{sub}/{hash}");
+                match crate::net::download_verified(&url, &dest, Some(hash)) {
+                    Ok(()) => {
+                        downloaded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    Err(e) => {
+                        if let Ok(mut slot) = error.lock() {
+                            if slot.is_none() {
+                                *slot = Some(e);
+                            }
+                        }
+                        break;
+                    }
+                }
+            });
+        }
+    });
+
+    if let Some(e) = error.into_inner().unwrap_or(None) {
+        return Err(e);
+    }
+    Ok(downloaded.load(std::sync::atomic::Ordering::SeqCst))
 }
 
 #[cfg(test)]
@@ -689,6 +804,49 @@ mod tests {
         let obj = idx.objects.get("minecraft/sounds/a.ogg").unwrap();
         assert_eq!(obj.hash, "aabbcc");
         assert_eq!(obj.size, 10);
+    }
+
+    #[test]
+    fn asset_download_skips_present_objects() {
+        let td = tempfile::tempdir().unwrap();
+        let index_path = td.path().join("index.json");
+        let hashes = [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ];
+        let objects = td.path().join("assets").join("objects");
+        for h in hashes {
+            let dir = objects.join(&h[..2]);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(h), b"x").unwrap();
+        }
+        std::fs::write(
+            &index_path,
+            r#"{"objects":{"a":{"hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1},"b":{"hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","size":1}}}"#,
+        )
+        .unwrap();
+        // Everything is already present, so no network access happens.
+        assert_eq!(
+            ensure_assets_with_workers(td.path(), &index_path, None, 4).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn vanilla_client_jar_path_matches_prism_layout() {
+        let p = vanilla_client_jar(Path::new("/data"), "1.21.1");
+        assert!(p.ends_with("libraries/com/mojang/minecraft/1.21.1/minecraft-1.21.1-client.jar"));
+    }
+
+    #[test]
+    fn parses_mojang_downloads_block() {
+        let json = r#"{"id":"1.21.1","mainClass":"a.B","downloads":{
+            "client":{"path":"x.jar","sha1":"abc","size":5,"url":"https://example.invalid/x.jar"},
+            "server":{"path":"s.jar","sha1":"def","size":6,"url":"https://example.invalid/s.jar"}}}"#;
+        let v: VersionJson = serde_json::from_str(json).unwrap();
+        let d = v.downloads.unwrap();
+        assert_eq!(d.client.unwrap().sha1, "abc");
+        assert_eq!(d.server.unwrap().size, 6);
     }
 
     #[test]

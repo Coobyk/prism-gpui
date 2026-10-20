@@ -39,6 +39,14 @@ impl ConsoleView {
                     v.drain(0..excess);
                 }
             };
+            // Assets and the vanilla jar are fetched here rather than when the
+            // profile is built, so opening the console never blocks the UI.
+            push(&lines_bg, "Checking assets…".to_string());
+            match profile.ensure_ready() {
+                Ok(0) => {}
+                Ok(n) => push(&lines_bg, format!("Fetched {n} missing files")),
+                Err(e) => push(&lines_bg, format!("warning: {e}")),
+            }
             if !profile.pre_launch.trim().is_empty() {
                 push(&lines_bg, format!("$ {}", profile.pre_launch));
                 match crate::launch::run_hook(&profile.pre_launch, &profile.game_dir) {

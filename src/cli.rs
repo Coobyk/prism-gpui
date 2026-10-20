@@ -806,6 +806,14 @@ fn cmd_update(data_root: &Path, name: &str) -> Result<(), String> {
         total += meta::ensure_libraries(data_root, &v)?;
         meta::ensure_asset_index(data_root, &v)?;
     }
+    for c in &pack.components {
+        if c.uid == "net.minecraft" {
+            match meta::ensure_all_assets(data_root, &c.version) {
+                Ok(n) => total += n,
+                Err(e) => eprintln!("warning: assets for {}: {e}", c.version),
+            }
+        }
+    }
     println!("updated {name}: {resolved} components resolved, {total} files downloaded");
     for f in &failed {
         eprintln!("warning: {f}");
@@ -1540,6 +1548,12 @@ fn cmd_launch(data_root: &Path, name: &str, dry_run: bool) -> Result<(), String>
         let cmd = profile.jvm_command();
         println!("command: {:?}", cmd);
         return Ok(());
+    }
+    // Download the client jar and any missing assets before starting the JVM.
+    match profile.ensure_ready() {
+        Ok(0) => {}
+        Ok(n) => println!("fetched {n} missing files"),
+        Err(e) => eprintln!("warning: {e}"),
     }
     if !profile.pre_launch.trim().is_empty() {
         println!("running pre-launch: {}", profile.pre_launch);

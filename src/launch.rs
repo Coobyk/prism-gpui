@@ -12,6 +12,10 @@ pub struct LaunchProfile {
     pub max_mem_mb: u32,
     pub game_dir: PathBuf,
     pub assets_dir: PathBuf,
+    /// Data root, used to fetch assets at launch time.
+    pub data_root: PathBuf,
+    /// Minecraft version, used to fetch assets at launch time.
+    pub mc_version: String,
     pub main_class: String,
     pub classpath: Vec<PathBuf>,
     pub jvm_args: Vec<String>,
@@ -28,6 +32,25 @@ pub struct LaunchProfile {
 }
 
 impl LaunchProfile {
+    /// Fetch anything the JVM needs that is missing locally: the vanilla
+    /// client jar and the asset objects. Mirrors Prism's launch-time downloads.
+    /// Returns the number of files fetched.
+    pub fn ensure_ready(&self) -> Result<usize, String> {
+        let mut n = 0;
+        let meta_path = self
+            .data_root
+            .join("meta")
+            .join("net.minecraft")
+            .join(format!("{}.json", self.mc_version));
+        if let Some(v) = meta::read_version_json(&meta_path) {
+            if meta::ensure_vanilla_client(&self.data_root, &v)? {
+                n += 1;
+            }
+        }
+        n += meta::ensure_all_assets(&self.data_root, &self.mc_version).unwrap_or(0);
+        Ok(n)
+    }
+
     pub fn jvm_command(&self) -> Command {
         let mut cmd = if self.wrapper.is_empty() {
             Command::new(&self.java_path)
@@ -177,6 +200,7 @@ pub fn build_profile_with_account(
     let mut loader_game_args_raw: Option<String> = None;
     let mut natives_jars: Vec<PathBuf> = Vec::new();
     let mut saw_minecraft = false;
+    let mut mc_version: Option<String> = None;
 
     // Components are ordered dependency-first; later ones (loader) override.
     for comp in &pack.components {
@@ -186,6 +210,7 @@ pub fn build_profile_with_account(
         };
         if comp.uid == "net.minecraft" {
             saw_minecraft = true;
+            mc_version = Some(comp.version.clone());
             version.main_class = v.main_class.clone();
             version.asset_index = v.asset_index.clone();
             version.arguments = v.arguments.clone();
@@ -371,7 +396,11 @@ pub fn build_profile_with_account(
     let post_exit =
         cfg_get("PostExitCommand").unwrap_or_else(|| settings.post_exit_command().to_string());
 
-    classpath.push(inst_dir.join("minecraft").join("client.jar"));
+    // Vanilla client jar: shared library cache, or a legacy per-instance copy.
+    // Any missing pieces are fetched by `LaunchProfile::ensure_ready`, which
+    // runs off the UI thread right before the JVM starts.
+    let mc_version = mc_version.clone().unwrap_or_else(|| version.id.clone());
+    classpath.push(meta::client_jar_for(inst_dir, data_root, &mc_version));
 
     Some(LaunchProfile {
         java_path: java_path.to_path_buf(),
@@ -379,6 +408,8 @@ pub fn build_profile_with_account(
         max_mem_mb: max_mem,
         game_dir,
         assets_dir,
+        data_root: data_root.to_path_buf(),
+        mc_version,
         main_class: version.main_class,
         classpath,
         jvm_args,
