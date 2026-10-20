@@ -4,6 +4,7 @@
 use crate::launch::LaunchProfile;
 use crate::theme::Theme;
 use gpui::{
+    ClipboardItem,
     App, Bounds, Context, IntoElement, ParentElement, Render, SharedString, Styled, Timer, Window,
     WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
 };
@@ -156,13 +157,18 @@ impl Render for ConsoleView {
                 div()
                     .flex()
                     .items_center()
-                    .h(px(36.0))
+                    .h(px(30.0))
                     .px_4()
                     .gap_4()
                     .bg(rgb(theme.surface))
                     .border_b_1()
                     .border_color(rgb(theme.border))
-                    .child("Console")
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child("Console"),
+                    )
                     .child(div().ml_auto().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone())),
             )
             .child(
@@ -177,6 +183,52 @@ impl Render for ConsoleView {
                     .children(tail.into_iter().map(|l| {
                         div().child(l).into_any_element()
                     })),
+            )
+            // The button row of a log viewer.
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .h(px(40.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_t_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .id("console-copy")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child("Copy")
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                let text = this.lines.lock().unwrap().join("\n");
+                                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                                this.status = "Copied to the clipboard".into();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("console-close")
+                            .ml_auto()
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child("Close")
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.quit();
+                            })),
+                    ),
             )
     }
 }
