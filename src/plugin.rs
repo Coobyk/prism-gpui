@@ -305,8 +305,7 @@ pub struct SourceHit {
 }
 
 /// Search a manifest-declared content source.
-pub fn search_source(source: &ContentSource, query: &str) -> Result<Vec<SourceHit>, String> {
-    let url = expand(&source.search_url, &[("query", query)]);
+pub fn search_source(source: &ContentSource, query: &str) -> Result<Vec<SourceHit>, String> {    let url = expand(&source.search_url, &[("query", query)]);
     let body = crate::net::get_string(&url)?;
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let node = if source.results_path.is_empty() {
@@ -345,6 +344,61 @@ pub fn search_source(source: &ContentSource, query: &str) -> Result<Vec<SourceHi
                 .unwrap_or(0),
         })
         .collect())
+}
+
+/// Make a string safe to use as a single path component.
+pub fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' ') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() || trimmed.chars().all(|c| matches!(c, '.' | '_' | ' ')) {
+        "download".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// Install a hit from a manifest-declared source into `dest`.
+///
+/// The source must provide a `download-url` template; `{id}` and `{title}` are
+/// substituted. The file name is taken from the URL when it looks like a file
+/// name, otherwise derived from the source name and hit id.
+pub fn install_source(
+    source: &ContentSource,
+    hit: &SourceHit,
+    dest: &Path,
+) -> Result<PathBuf, String> {
+    if source.download_url.trim().is_empty() {
+        return Err(format!(
+            "content source '{}' does not declare a download-url",
+            source.name
+        ));
+    }
+    let url = expand(
+        &source.download_url,
+        &[("id", &hit.id), ("title", &hit.title)],
+    );
+    let file_name = url
+        .split(['?', '#'])
+        .next()
+        .and_then(|u| u.rsplit('/').next())
+        .filter(|s| !s.is_empty() && s.contains('.') && !s.contains('{'))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            format!("{}-{}.jar", sanitize_filename(&source.name), sanitize_filename(&hit.id))
+        });
+    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    let path = dest.join(file_name);
+    crate::net::download_verified(&url, &path, None)?;
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -447,5 +501,30 @@ versions-url = "https://maven.example.com/forge/maven-metadata.xml"
         let fake = td.path().join("not-a-library.so");
         std::fs::write(&fake, b"nope").unwrap();
         assert!(NativePlugin::load(&fake).is_err());
+    }
+
+    #[test]
+    fn sanitizes_download_file_names() {
+        assert_eq!(sanitize_filename("My Pack/1.0"), "My Pack_1.0");
+        assert_eq!(sanitize_filename("../.."), "download");
+        assert_eq!(sanitize_filename("mod.jar"), "mod.jar");
+    }
+
+    #[test]
+    fn install_source_requires_download_url() {
+        let source = ContentSource {
+            name: "Example".into(),
+            search_url: "https://e".into(),
+            ..Default::default()
+        };
+        let hit = SourceHit {
+            id: "1".into(),
+            title: "T".into(),
+            description: String::new(),
+            downloads: 0,
+        };
+        let td = tempfile::tempdir().unwrap();
+        let err = install_source(&source, &hit, td.path()).unwrap_err();
+        assert!(err.contains("download-url"));
     }
 }

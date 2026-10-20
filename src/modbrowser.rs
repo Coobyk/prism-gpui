@@ -21,6 +21,9 @@ struct HitRow {
     platform: Platform,
     kind: ContentKind,
     extra: String,
+    /// When set, the hit comes from a manifest plugin source (index into
+    /// `plugin_sources`) rather than a built-in platform.
+    plugin_source: Option<usize>,
 }
 
 pub struct ModBrowser {
@@ -28,6 +31,10 @@ pub struct ModBrowser {
     hits: Vec<HitRow>,
     kind: ContentKind,
     platform: Platform,
+    /// Content sources declared by installed manifest plugins.
+    plugin_sources: Vec<(String, crate::plugin::ContentSource)>,
+    /// Selected plugin source, when one is active instead of `platform`.
+    plugin_selected: Option<usize>,
     /// Minecraft version + loader of the target instance, used to filter.
     game_version: Option<String>,
     loader: Option<String>,
@@ -46,11 +53,19 @@ impl ModBrowser {
     ) -> Self {
         let input = cx.new(|cx| TextInput::new("Search for content…", cx));
         let (game_version, loader) = target_of(&instance_dir);
+        let host = crate::plugin::PluginHost::discover(&data_root);
+        let plugin_sources: Vec<(String, crate::plugin::ContentSource)> = host
+            .sources()
+            .into_iter()
+            .map(|(plugin, source)| (plugin.to_string(), source.clone()))
+            .collect();
         Self {
             input,
             hits: Vec::new(),
             kind: ContentKind::Mod,
             platform: Platform::Modrinth,
+            plugin_sources,
+            plugin_selected: None,
             game_version,
             loader,
             data_root,
@@ -77,16 +92,65 @@ impl ModBrowser {
 
     fn search(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).text().trim().to_string();
+        if query.is_empty() {
+            self.status = "Enter a query".into();
+            cx.notify();
+            return;
+        }
+        // A plugin source, when selected, replaces the built-in platform.
+        if let Some(idx) = self.plugin_selected {
+            let Some((plugin, source)) = self.plugin_sources.get(idx).cloned() else {
+                self.status = "Plugin source is no longer available".into();
+                cx.notify();
+                return;
+            };
+            let kind = self.kind;
+            self.status = format!("Searching {} ({plugin})…", source.name).into();
+            cx.notify();
+            cx.spawn(async move |this, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        crate::plugin::search_source(&source, &query).map(|hits| {
+                            hits.into_iter()
+                                .map(|h| HitRow {
+                                    title: h.title,
+                                    id: h.id,
+                                    slug: String::new(),
+                                    description: h.description,
+                                    downloads: h.downloads,
+                                    platform: Platform::Modrinth,
+                                    kind,
+                                    extra: String::new(),
+                                    plugin_source: Some(idx),
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .await;
+                this.update(cx, |this, cx| {
+                    match result {
+                        Ok(hits) => {
+                            this.status = format!("{} results", hits.len()).into();
+                            this.hits = hits;
+                        }
+                        Err(e) => {
+                            this.status = format!("Search failed: {e}").into();
+                            this.hits.clear();
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+            return;
+        }
         let platform = self.platform;
         let kind = self.kind;
         let q = SearchQuery::new(query)
             .with_game_version(self.game_version.clone())
             .with_loader(self.loader.clone());
-        if q.text.is_empty() {
-            self.status = "Enter a query".into();
-            cx.notify();
-            return;
-        }
         self.status = format!("Searching {}…", platform.label()).into();
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -109,6 +173,7 @@ impl ModBrowser {
                                 platform: h.platform,
                                 kind: h.kind,
                                 extra: h.extra,
+                                plugin_source: None,
                             })
                             .collect();
                     }
@@ -130,12 +195,35 @@ impl ModBrowser {
         let settings = crate::settings::GlobalSettings::load(&self.data_root);
         let game_version = self.game_version.clone();
         let loader = self.loader.clone();
+        let plugin_source = row
+            .plugin_source
+            .and_then(|i| self.plugin_sources.get(i).cloned());
+        if let Some((_, source)) = &plugin_source {
+            if row.kind == ContentKind::Modpack {
+                self.status =
+                    "Modpacks cannot be installed from a plugin content source".into();
+                cx.notify();
+                return;
+            }
+        }
         self.status = format!("Installing {}…", row.title).into();
         cx.notify();
         cx.spawn(async move |this, cx| {
             let msg = cx
                 .background_executor()
                 .spawn(async move {
+                    if let Some((_, source)) = plugin_source {
+                        let hit = crate::plugin::SourceHit {
+                            id: row.id.clone(),
+                            title: row.title.clone(),
+                            description: row.description.clone(),
+                            downloads: row.downloads,
+                        };
+                        return match crate::plugin::install_source(&source, &hit, &dir) {
+                            Ok(path) => format!("installed {}", path.display()),
+                            Err(e) => format!("Install failed: {e}"),
+                        };
+                    }
                     let hit = PlatformHit {
                         platform: row.platform,
                         kind: row.kind,
@@ -267,11 +355,12 @@ impl Render for ModBrowser {
             .collect::<Vec<_>>();
 
         let platforms = self.platforms();
+        let plugin_selected = self.plugin_selected;
         let platform_tabs = platforms
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let selected = *p == self.platform;
+                let selected = plugin_selected.is_none() && *p == self.platform;
                 let p2 = *p;
                 div()
                     .id(("plat", i))
@@ -284,8 +373,41 @@ impl Render for ModBrowser {
                     .child(p.label())
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.platform = p2;
+                        this.plugin_selected = None;
                         this.hits.clear();
                         this.status = format!("{} selected", p2.label()).into();
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
+        // Installed manifest plugins add their own content sources as extra
+        // tabs, indistinguishable from built-in platforms to the user.
+        let plugin_tabs = self
+            .plugin_sources
+            .iter()
+            .enumerate()
+            .map(|(i, (plugin, source))| {
+                let selected = plugin_selected == Some(i);
+                div()
+                    .id(("plugin", i))
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.background) })
+                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.subtext) })
+                    .child(format!("{} · {}", source.name, plugin))
+                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                        this.plugin_selected = Some(i);
+                        this.hits.clear();
+                        this.status = this
+                            .plugin_sources
+                            .get(i)
+                            .map(|(_, s)| format!("{} selected", s.name))
+                            .unwrap_or_else(|| "plugin selected".into())
+                            .into();
                         cx.notify();
                     }))
                     .into_any_element()
@@ -373,7 +495,8 @@ impl Render for ModBrowser {
                     .border_b_1()
                     .border_color(rgb(theme.border))
                     .child(div().flex().gap_2().children(kind_tabs))
-                    .child(div().flex().gap_2().children(platform_tabs))
+                    .child(div().flex().flex_wrap().gap_2().children(platform_tabs))
+                    .child(div().flex().flex_wrap().gap_2().children(plugin_tabs))
                     .child(
                         div()
                             .flex()

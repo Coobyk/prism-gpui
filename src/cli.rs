@@ -8,6 +8,15 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
     let settings = crate::settings::GlobalSettings::load(data_root);
     crate::net::set_proxy(settings.proxy_url());
     crate::modplatform::curseforge::set_api_key(settings.curseforge_api_key());
+    // Native plugins may register behaviour that CLI commands rely on, so
+    // initialise them once at start-up (manifest plugins are read on demand).
+    let plugins = crate::plugin::PluginHost::discover(data_root);
+    for warning in &plugins.warnings {
+        eprintln!("warning: plugin: {warning}");
+    }
+    for warning in plugins.init_natives(data_root) {
+        eprintln!("warning: plugin: {warning}");
+    }
     match args.first().map(|s| s.as_str()) {
         Some("list") => cmd_list(data_root),
         Some("java") => cmd_java(data_root),
@@ -547,6 +556,80 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
         Some("plugins") => {
             let host = crate::plugin::PluginHost::discover(data_root);
             host.print();
+            for e in host.init_natives(data_root) {
+                eprintln!("warning: {e}");
+            }
+            Ok(())
+        }
+        Some("search-source") => {
+            let name = args.get(1).ok_or("usage: search-source <source> <query>")?;
+            let query = args.get(2).map(|s| s.as_str()).unwrap_or("");
+            let host = crate::plugin::PluginHost::discover(data_root);
+            for e in host.init_natives(data_root) {
+                eprintln!("warning: {e}");
+            }
+            let sources = host.sources();
+            let Some((plugin, source)) = sources
+                .iter()
+                .find(|(_, s)| s.name.eq_ignore_ascii_case(name))
+            else {
+                let names: Vec<&str> = sources.iter().map(|(_, s)| s.name.as_str()).collect();
+                return Err(if names.is_empty() {
+                    "no plugin content sources are installed".to_string()
+                } else {
+                    format!("unknown source '{name}' (available: {})", names.join(", "))
+                });
+            };
+            let hits = crate::plugin::search_source(source, query)?;
+            println!(
+                "{} ({plugin}) — {} results",
+                source.name,
+                hits.len()
+            );
+            for h in &hits {
+                println!(
+                    "  {:<24} {:<10} {}",
+                    h.id,
+                    if h.downloads > 0 {
+                        h.downloads.to_string()
+                    } else {
+                        String::new()
+                    },
+                    h.title
+                );
+                if !h.description.is_empty() {
+                    println!("      {}", h.description);
+                }
+            }
+            Ok(())
+        }
+        Some("install-source") => {
+            let name = args.get(1).ok_or("usage: install-source <source> <id> <instance>")?;
+            let id = args.get(2).ok_or("usage: install-source <source> <id> <instance>")?;
+            let inst_name = args
+                .get(3)
+                .ok_or("usage: install-source <source> <id> <instance>")?;
+            let inst = find_instance(data_root, inst_name)?;
+            let host = crate::plugin::PluginHost::discover(data_root);
+            for e in host.init_natives(data_root) {
+                eprintln!("warning: {e}");
+            }
+            let sources = host.sources();
+            let Some((_, source)) = sources
+                .iter()
+                .find(|(_, s)| s.name.eq_ignore_ascii_case(name))
+            else {
+                return Err(format!("unknown plugin source: {name}"));
+            };
+            let hit = crate::plugin::SourceHit {
+                id: id.clone(),
+                title: id.clone(),
+                description: String::new(),
+                downloads: 0,
+            };
+            let dir = inst.dir.join("minecraft").join("mods");
+            let path = crate::plugin::install_source(source, &hit, &dir)?;
+            println!("installed {}", path.display());
             Ok(())
         }
         Some("news") => {

@@ -430,6 +430,16 @@ fn main() {
     }
     let settings = GlobalSettings::load(&root);
     crate::net::set_proxy(settings.proxy_url());
+    // Load native plugins once; manifest plugins are read by the content
+    // browser when it opens.
+    let plugins = crate::plugin::PluginHost::discover(&root);
+    for warning in &plugins.warnings {
+        eprintln!("warning: plugin: {warning}");
+    }
+    for warning in plugins.init_natives(&root) {
+        eprintln!("warning: plugin: {warning}");
+    }
+    let plugin_count = plugins.manifests.len() + plugins.natives.len();
     let rows = instance_rows(&root);
     let java = java::discover_java(&root);
     let java_path = java.first().map(|j| j.path.clone());
