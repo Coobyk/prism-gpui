@@ -232,6 +232,12 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             println!("skin reset to the default");
             Ok(())
         }
+        Some("skin-install") => {
+            let file = args.get(1).ok_or("usage: skin-install <file.png>")?;
+            let installed = crate::skin::install_skin(data_root, Path::new(file))?;
+            println!("installed {}", installed.display());
+            Ok(())
+        }
         Some("skin-activate") => {
             let id = args.get(1).ok_or("usage: skin-activate <skin-id>")?;
             let store = crate::accounts::AccountStore::load(data_root);
@@ -887,6 +893,9 @@ fn print_help() {
     println!("  skin-activate <id>  activate a stored skin");
     println!("  skin-local [file]   list or install local skins");
     println!("  skin list|install|upload|reset|activate  manage skins");
+    println!("  skin-install <file.png>  add a skin to the local library");
+    println!("  skin-upload <file.png> [classic|slim]  upload a skin");
+    println!("  skin-reset              restore the default skin");
     println!("  set-component <instance> <uid> <version>  change a component version");
     println!("  settings [list|get <k>|set <k> <v>]  read/write global settings");
     println!("  install-url <instance> <url>  download a mod directly into mods/");
