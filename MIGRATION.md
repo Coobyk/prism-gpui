@@ -124,7 +124,14 @@ This validates the data layer + launch path before tackling UI breadth.
 
 - Full mod-platform parity (Modrinth first).
 - The Qt plugin system — reimplemented natively in Rust instead.
-- Pixel-level skin painting (skin upload/activate/reset are implemented).
+- Pixel-level skin painting. The skin *management* features Prism has are
+  implemented (upload with classic/slim model, activate a stored skin, reset
+  to the default, cape selection, a local skin library); painting pixels in
+  the launcher is deliberately out of scope.
+- CurseForge as a browsing platform. The client and the pack importer are
+  still in the tree, but the content browser only offers the CurseForge tab
+  when an API key is configured (`CurseForgeAPIKey` / `FlameKeyOverride` in
+  Settings → APIs, or `CF_API_KEY`).
 
 ## 7. Effort estimate
 
@@ -135,7 +142,7 @@ instance directory format.
 
 ## 8. Implementation status
 
-The `prism-gpui` binary implements the following today (104 unit tests green;
+The `prism-gpui` binary implements the following today (105 unit tests green;
 `cargo test` passes on the instabox build box as well).
 
 ### Data / core
@@ -205,8 +212,9 @@ The `prism-gpui` binary implements the following today (104 unit tests green;
   navigation. The notes are edited in place and stored in the instance's
   `notes` setting; the Version tab lists the components.
 - Content browser: search across mods / modpacks / resource packs / shaders on
-  every platform plus plugin content sources, with install (modpacks become new
-  instances); Enter runs the search.
+  every usable platform plus plugin content sources, with install (modpacks
+  become new instances); Enter runs the search. A platform that needs an API
+  key only gets a tab when that key is configured.
 - Console window streaming live launch output.
 - Settings window: every setting in the registry, grouped by page, virtualised
   and scrollable, enum cycling, native path pickers, masked secrets.
@@ -241,9 +249,6 @@ absent).
 ### Still open
 - Forge/NeoForge/Quilt in-process installers (WiX-style) — the meta index +
   ForgeWrapper path is implemented and used instead, matching Prism.
-- In-app pixel-level skin painting (upload/activate/reset are done).
-- CurseForge downloads need `CF_API_KEY`; the other platforms are wired into
-  the CLI and the content browser.
 - OptiFine is not part of Prism's meta index, so it would need a direct
   optifine.net client.
 - No installer/packaging pipeline (AppImage, .msi, .dmg) and no code signing.

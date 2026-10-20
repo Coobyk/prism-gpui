@@ -93,8 +93,20 @@ impl ModBrowser {
     }
 
     /// Platforms available for the selected kind.
+    ///
+    /// A platform that needs an API key is only offered when that key is
+    /// actually configured, so the browser never shows a tab that cannot
+    /// return any result.
     fn platforms(&self) -> Vec<Platform> {
-        Platform::for_kind(self.kind)
+        Platform::usable_for_kind(self.kind, &|p| self.has_api_key(p))
+    }
+
+    /// Whether the API key a platform needs is available.
+    fn has_api_key(&self, platform: &Platform) -> bool {
+        match platform {
+            Platform::CurseForge => crate::modplatform::curseforge::has_api_key(),
+            _ => true,
+        }
     }
 
     fn search(&mut self, cx: &mut Context<Self>) {
@@ -352,7 +364,7 @@ impl Render for ModBrowser {
                         this.kind = k2;
                         this.hits.clear();
                         let avail = this.platforms();
-                        if !avail.contains(&this.platform) {
+                        if !avail.is_empty() && !avail.contains(&this.platform) {
                             this.platform = avail[0];
                         }
                         cx.notify();

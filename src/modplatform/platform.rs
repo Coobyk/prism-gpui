@@ -86,6 +86,18 @@ impl Platform {
             })
             .collect()
     }
+
+    /// Platforms available for a content kind, minus the ones that cannot be
+    /// used right now.
+    ///
+    /// A platform that needs an API key is only offered when that key is
+    /// configured, so the UI never shows a tab that cannot return results.
+    pub fn usable_for_kind(kind: ContentKind, api_keys: &dyn Fn(&Platform) -> bool) -> Vec<Platform> {
+        Platform::for_kind(kind)
+            .into_iter()
+            .filter(|p| !p.needs_api_key() || api_keys(p))
+            .collect()
+    }
 }
 
 /// What is being browsed/installed.
@@ -464,6 +476,25 @@ mod tests {
         assert_eq!(Platform::from_name("Modrinth"), Some(Platform::Modrinth));
         assert_eq!(Platform::from_name("nope"), None);
         assert_eq!(Platform::CurseForge.label(), "CurseForge");
+    }
+
+    #[test]
+    fn platforms_without_an_api_key_are_hidden() {
+        // CurseForge needs a key, so it drops out when none is configured.
+        let none = |_: &Platform| false;
+        let mods = Platform::usable_for_kind(ContentKind::Mod, &none);
+        assert!(mods.contains(&Platform::Modrinth));
+        assert!(!mods.contains(&Platform::CurseForge));
+
+        // With a key it is offered again.
+        let some = |_: &Platform| true;
+        let mods = Platform::usable_for_kind(ContentKind::Mod, &some);
+        assert!(mods.contains(&Platform::CurseForge));
+
+        // Platforms that need no key are always offered.
+        let packs = Platform::usable_for_kind(ContentKind::Modpack, &none);
+        assert!(packs.contains(&Platform::Ftb));
+        assert!(packs.contains(&Platform::Technic));
     }
 
     #[test]
