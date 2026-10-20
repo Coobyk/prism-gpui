@@ -266,9 +266,7 @@ impl MainWindow {
                 return;
             }
         };
-        let account = crate::accounts::AccountStore::load(&self.data_root)
-            .active_account()
-            .cloned();
+        let account = crate::accounts::account_for_instance(&self.data_root, &row.dir);
         match launch::build_profile_with_account(&row.dir, &self.data_root, &java, account.as_ref())
         {
             Some(profile) => {

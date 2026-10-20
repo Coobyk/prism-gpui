@@ -1661,9 +1661,7 @@ fn cmd_profile(data_root: &Path, name: &str) -> Result<(), String> {
         .find(|i| i.name == name)
         .ok_or_else(|| format!("instance not found: {name}"))?;
     let java_path = java::ensure_for_instance(data_root, &inst.dir)?;
-    let account = crate::accounts::AccountStore::load(data_root)
-        .active_account()
-        .cloned();
+    let account = crate::accounts::account_for_instance(data_root, &inst.dir);
     let profile =
         launch::build_profile_with_account(&inst.dir, data_root, &java_path, account.as_ref())
             .ok_or("could not build launch profile")?;
@@ -1700,9 +1698,7 @@ fn cmd_launch(data_root: &Path, name: &str, dry_run: bool) -> Result<(), String>
         .find(|i| i.name == name)
         .ok_or_else(|| format!("instance not found: {name}"))?;
     let java_path = java::ensure_for_instance(data_root, &inst.dir)?;
-    let account = crate::accounts::AccountStore::load(data_root)
-        .active_account()
-        .cloned();
+    let account = crate::accounts::account_for_instance(data_root, &inst.dir);
     let profile =
         launch::build_profile_with_account(&inst.dir, data_root, &java_path, account.as_ref())
             .ok_or("could not build launch profile")?;

@@ -29,6 +29,8 @@ pub struct LaunchProfile {
     pub post_exit: String,
     /// Maximum console lines to retain in memory.
     pub console_max_lines: usize,
+    /// Extra environment variables for the game process.
+    pub env: Vec<(String, String)>,
 }
 
 impl LaunchProfile {
@@ -77,6 +79,9 @@ impl LaunchProfile {
         cmd.arg(&self.main_class);
         cmd.args(&self.game_args);
         cmd.current_dir(&self.game_dir);
+        for (key, value) in &self.env {
+            cmd.env(key, value);
+        }
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd
     }
@@ -179,6 +184,17 @@ pub fn build_profile(
     java_path: &Path,
 ) -> Option<LaunchProfile> {
     build_profile_with_account(inst_dir, data_root, java_path, None)
+}
+
+/// Split a `host:port` server address, defaulting to port 25565.
+fn split_server_address(address: &str) -> (String, u16) {
+    match address.rsplit_once(':') {
+        Some((host, port)) => match port.parse::<u16>() {
+            Ok(p) => (host.to_string(), p),
+            Err(_) => (address.to_string(), 25565),
+        },
+        None => (address.to_string(), 25565),
+    }
 }
 
 /// Build a launch profile for an instance from Prism metadata, substituting the
@@ -396,6 +412,45 @@ pub fn build_profile_with_account(
     let post_exit =
         cfg_get("PostExitCommand").unwrap_or_else(|| settings.post_exit_command().to_string());
 
+    // Per-instance environment variables (`EnvVars` holds a JSON object).
+    let mut env: Vec<(String, String)> = Vec::new();
+    if let Some(raw) = cfg_get("EnvVars") {
+        if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(&raw) {
+            for (k, v) in map {
+                if let Some(s) = v.as_str() {
+                    env.push((k, s.to_string()));
+                }
+            }
+        }
+    }
+
+    // Join a server or a world on launch, like Prism's MinecraftInstance does.
+    if cfg_get("JoinServerOnLaunch").as_deref() == Some("true") {
+        if let Some(address) = cfg_get("JoinServerOnLaunchAddress") {
+            let (host, port) = split_server_address(&address);
+            game_args.push("--quickPlayMultiplayer".to_string());
+            game_args.push(format!("{host}:{port}"));
+        } else if let Some(world) = cfg_get("JoinWorldOnLaunch") {
+            game_args.push("--quickPlaySingleplayer".to_string());
+            game_args.push(world);
+        }
+    }
+
+    // Window size / fullscreen.
+    if cfg_get("LaunchMaximized").as_deref() == Some("true") {
+        game_args.push("--fullscreen".to_string());
+    } else if let (Some(w), Some(h)) = (cfg_get("MinecraftWinWidth"), cfg_get("MinecraftWinHeight"))
+    {
+        if let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>()) {
+            if w > 0 && h > 0 {
+                game_args.push("--width".to_string());
+                game_args.push(w.to_string());
+                game_args.push("--height".to_string());
+                game_args.push(h.to_string());
+            }
+        }
+    }
+
     // Vanilla client jar: shared library cache, or a legacy per-instance copy.
     // Any missing pieces are fetched by `LaunchProfile::ensure_ready`, which
     // runs off the UI thread right before the JVM starts.
@@ -418,6 +473,7 @@ pub fn build_profile_with_account(
         pre_launch,
         post_exit,
         console_max_lines: settings.console_max_lines(),
+        env,
     })
 }
 
@@ -554,6 +610,53 @@ mod tests {
             assert!(got.contains(&"-Dlinux=1".to_string()));
         }
         assert!(!got.contains(&"--demo".to_string()));
+    }
+
+    #[test]
+    fn instance_settings_reach_the_launch_command() {
+        let td = tempfile::tempdir().unwrap();
+        let inst = td.path().join("inst");
+        std::fs::create_dir_all(&inst).unwrap();
+        std::fs::write(
+            inst.join("instance.cfg"),
+            "[General]\nMinMemAlloc=1024\nMaxMemAlloc=2048\nJoinServerOnLaunch=true\nJoinServerOnLaunchAddress=mc.example.org:25566\nMinecraftWinWidth=1280\nMinecraftWinHeight=720\nEnvVars={\"FOO\":\"bar\"}\n",
+        )
+        .unwrap();
+        // A minimal component pack so the profile can be built.
+        std::fs::write(
+            inst.join("mmc-pack.json"),
+            r#"{"formatVersion":1,"components":[{"uid":"net.minecraft","version":"1.21.1"}]}"#,
+        )
+        .unwrap();
+        let meta_dir = td.path().join("meta");
+        std::fs::create_dir_all(meta_dir.join("net.minecraft")).unwrap();
+        std::fs::write(
+            meta_dir.join("net.minecraft").join("1.21.1.json"),
+            r#"{"id":"1.21.1","mainClass":"net.minecraft.client.main.Main","minecraftArguments":"--username ${auth_player_name}"}"#,
+        )
+        .unwrap();
+
+        let profile = build_profile_with_account(&inst, td.path(), Path::new("/usr/bin/java"), None)
+            .expect("profile");
+        assert_eq!(profile.min_mem_mb, 1024);
+        assert_eq!(profile.max_mem_mb, 2048);
+        assert!(profile.game_args.contains(&"--quickPlayMultiplayer".to_string()));
+        assert!(profile.game_args.contains(&"mc.example.org:25566".to_string()));
+        assert!(profile.game_args.contains(&"--width".to_string()));
+        assert!(profile.game_args.contains(&"1280".to_string()));
+        assert_eq!(profile.env, vec![("FOO".to_string(), "bar".to_string())]);
+    }
+
+    #[test]
+    fn server_address_defaults_to_25565() {
+        assert_eq!(
+            split_server_address("play.example.org"),
+            ("play.example.org".to_string(), 25565)
+        );
+        assert_eq!(
+            split_server_address("play.example.org:25577"),
+            ("play.example.org".to_string(), 25577)
+        );
     }
 
     #[test]

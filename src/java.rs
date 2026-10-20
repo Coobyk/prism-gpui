@@ -283,6 +283,23 @@ pub fn runtime_components(required_major: u32) -> Vec<&'static str> {
 /// otherwise download the appropriate Mojang runtime (when enabled in
 /// settings), otherwise fall back to any installed runtime.
 pub fn ensure_for_instance(data_root: &Path, inst_dir: &Path) -> Result<PathBuf, String> {
+    // A per-instance Java path wins over the global one when the instance
+    // explicitly overrides it (Prism's `OverrideJavaLocation`).
+    if let Some(inst) = crate::instance::Instance::load(inst_dir) {
+        let override_location = inst
+            .settings
+            .get("OverrideJavaLocation")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        let path = inst.java_path.trim();
+        if override_location && !path.is_empty() {
+            let p = PathBuf::from(path);
+            if p.is_file() {
+                return Ok(p);
+            }
+            return Err(format!("the instance's Java path does not exist: {path}"));
+        }
+    }
     let required = crate::meta::required_java_major(inst_dir, data_root);
     if let Some(j) = select_java(data_root, required) {
         return Ok(j.path);

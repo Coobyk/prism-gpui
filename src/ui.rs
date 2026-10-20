@@ -337,9 +337,8 @@ impl Render for InstanceView {
                     "l" => {
                         let java = crate::java::ensure_for_instance(&this.data_root, &this.dir);
                         if let Ok(java) = java {
-                            let account = crate::accounts::AccountStore::load(&this.data_root)
-                                .active_account()
-                                .cloned();
+                            let account =
+                                crate::accounts::account_for_instance(&this.data_root, &this.dir);
                             if let Some(profile) = crate::launch::build_profile_with_account(
                                 &this.dir,
                                 &this.data_root,
@@ -382,10 +381,10 @@ impl Render for InstanceView {
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 match crate::java::ensure_for_instance(&this.data_root, &this.dir) {
                                     Ok(java) => {
-                                        let account =
-                                            crate::accounts::AccountStore::load(&this.data_root)
-                                                .active_account()
-                                                .cloned();
+                                        let account = crate::accounts::account_for_instance(
+                                            &this.data_root,
+                                            &this.dir,
+                                        );
                                         if let Some(profile) =
                                             crate::launch::build_profile_with_account(
                                                 &this.dir,
@@ -1160,93 +1159,327 @@ pub fn open_settings(
 
 pub struct InstanceSettingsView {
     dir: PathBuf,
-    min_input: Entity<TextInput>,
-    max_input: Entity<TextInput>,
-    java_input: Entity<TextInput>,
+    /// The instance's current settings, edited in place.
+    settings: std::collections::BTreeMap<String, String>,
+    /// Text inputs for the non-boolean settings.
+    inputs: Vec<(&'static crate::settings::SettingDef, Entity<TextInput>)>,
+    page: usize,
     status: SharedString,
     theme: Theme,
+    focus: FocusHandle,
+    scroll: UniformListScrollHandle,
+    auto_focused: bool,
 }
 
 impl InstanceSettingsView {
     pub fn new(dir: PathBuf, instance: &crate::instance::Instance, theme: Theme, cx: &mut Context<Self>) -> Self {
-        let min_input = cx.new(|cx| {
-            let mut t = TextInput::new("Min memory (MB)", cx);
-            t.set_text(instance.min_mem.to_string(), cx);
-            t.set_theme(theme, cx);
-            t
-        });
-        let max_input = cx.new(|cx| {
-            let mut t = TextInput::new("Max memory (MB)", cx);
-            t.set_text(instance.max_mem.to_string(), cx);
-            t.set_theme(theme, cx);
-            t
-        });
-        let java_input = cx.new(|cx| {
-            let mut t = TextInput::new("Java path", cx);
-            t.set_text(instance.java_path.clone(), cx);
-            t.set_theme(theme, cx);
-            t
-        });
+        let mut settings = instance.settings.clone();
+        // Seed the defaults for known keys so the fields show sensible values.
+        for def in crate::settings::INSTANCE_SETTINGS {
+            settings
+                .entry(def.key.to_string())
+                .or_insert_with(|| def.default.to_string());
+        }
+        let inputs = crate::settings::INSTANCE_SETTINGS
+            .iter()
+            .filter(|d| d.kind != crate::settings::ValueKind::Bool)
+            .map(|def| {
+                let initial = settings
+                    .get(def.key)
+                    .cloned()
+                    .unwrap_or_else(|| def.default.to_string());
+                let input = cx.new(|cx| {
+                    let mut t = TextInput::new(def.label, cx);
+                    t.set_text(initial, cx);
+                    t.set_theme(theme, cx);
+                    t
+                });
+                (def, input)
+            })
+            .collect();
         Self {
             dir,
-            min_input,
-            max_input,
-            java_input,
-            status: "Ready".into(),
+            settings,
+            inputs,
+            page: 0,
+            status: "Changes are saved when you press Save".into(),
             theme,
+            focus: cx.focus_handle(),
+            scroll: UniformListScrollHandle::default(),
+            auto_focused: false,
         }
     }
 
+    /// Open a native file/directory picker for a path setting.
+    fn browse_path(&mut self, key: &'static str, cx: &mut Context<Self>) {
+        let files = key == "JavaPath";
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files,
+            directories: !files,
+            multiple: false,
+            prompt: Some("Select a path".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                if let Some(path) = paths.first() {
+                    let text = path.display().to_string();
+                    this.update(cx, |this, cx| {
+                        this.settings.insert(key.to_string(), text.clone());
+                        if let Some((_, input)) = this.inputs.iter().find(|(d, _)| d.key == key) {
+                            input.update(cx, |t, cx| t.set_text(text.clone(), cx));
+                        }
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
+    }
+
     fn save(&mut self, cx: &mut Context<Self>) {
-        let Some(mut inst) = crate::instance::Instance::load(&self.dir) else {
-            self.status = "Could not load instance.cfg".into();
-            cx.notify();
-            return;
+        for (def, input) in &self.inputs {
+            let value = input.read(cx).text().trim().to_string();
+            self.settings.insert(def.key.to_string(), value);
+        }
+        let mut inst = match crate::instance::Instance::load(&self.dir) {
+            Some(i) => i,
+            None => {
+                self.status = "Could not load instance.cfg".into();
+                cx.notify();
+                return;
+            }
         };
-        let min = self.min_input.read(cx).text().trim().to_string();
-        let max = self.max_input.read(cx).text().trim().to_string();
-        let java = self.java_input.read(cx).text().trim().to_string();
-        inst.set("MinMemAlloc", &min);
-        inst.set("MaxMemAlloc", &max);
-        inst.set("JavaPath", &java);
+        for (k, v) in &self.settings {
+            inst.set(k, v);
+        }
         match inst.save() {
             Ok(()) => self.status = "Saved".into(),
             Err(e) => self.status = format!("Save failed: {e}").into(),
         }
         cx.notify();
     }
+
+    fn toggle_bool(&mut self, key: &'static str, cx: &mut Context<Self>) {
+        let current = matches!(
+            self.settings.get(key).map(|s| s.as_str()).unwrap_or("false"),
+            "true" | "1" | "yes" | "on"
+        );
+        self.settings
+            .insert(key.to_string(), if current { "false" } else { "true" }.into());
+        cx.notify();
+    }
 }
 
 impl Render for InstanceSettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        if !self.auto_focused {
+            self.focus.focus(window);
+            self.auto_focused = true;
+        }
+        let pages = crate::settings::instance_pages();
+        let page_name = pages.get(self.page).copied().unwrap_or("Java");
+
+        let tabs: Vec<_> = pages
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let selected = i == self.page;
+                div()
+                    .id(("inst-page", i))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.surface) })
+                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
+                    .child(*p)
+                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                        this.page = i;
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        // Virtualised rows: only the visible settings are built.
+        let rows: Vec<(
+            &'static crate::settings::SettingDef,
+            Option<Entity<TextInput>>,
+            String,
+        )> = crate::settings::INSTANCE_SETTINGS
+            .iter()
+            .filter(|d| d.page == page_name)
+            .map(|d| {
+                let input = self
+                    .inputs
+                    .iter()
+                    .find(|(x, _)| x.key == d.key)
+                    .map(|(_, i)| i.clone());
+                let value = self.settings.get(d.key).cloned().unwrap_or_default();
+                (d, input, value)
+            })
+            .collect();
+        let entity = cx.entity();
+        let list = uniform_list("instance-settings", rows.len(), move |range, _window, _cx| {
+            range
+                .filter_map(|i| {
+                    let (def, input, value) = rows.get(i)?.clone();
+                    Some(instance_setting_row(def, input, value, theme, entity.clone()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .track_scroll(self.scroll.clone())
+        .flex_1();
+
         div()
             .flex()
             .flex_col()
-            .gap_3()
-            .p_4()
             .size_full()
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
-            .child("Instance Settings")
-            .child(div().w(px(320.)).child(self.min_input.clone()))
-            .child(div().w(px(320.)).child(self.max_input.clone()))
-            .child(div().w(px(520.)).child(self.java_input.clone()))
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                let pages = crate::settings::instance_pages();
+                match ev.keystroke.key.as_str() {
+                    "left" => {
+                        this.page = (this.page + pages.len() - 1) % pages.len();
+                        cx.notify();
+                    }
+                    "right" => {
+                        this.page = (this.page + 1) % pages.len();
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            }))
             .child(
                 div()
-                    .id("save-instance-settings")
-                    .px_3()
-                    .py_1()
-                    .w(px(100.))
-                    .rounded_md()
-                    .bg(rgb(theme.accent))
-                    .text_color(rgb(theme.on_accent))
-                    .cursor_pointer()
-                    .child("Save")
-                    .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .p_3()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(div().text_lg().child("Instance Settings"))
+                    .child(
+                        div()
+                            .id("save-instance-settings")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child("Save")
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
+                    )
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
             )
-            .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .p_3()
+                    .bg(rgb(theme.background))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .children(tabs),
+            )
+            .child(list)
     }
+}
+
+/// One row of the per-instance settings window.
+fn instance_setting_row(
+    def: &'static crate::settings::SettingDef,
+    input: Option<Entity<TextInput>>,
+    value: String,
+    theme: Theme,
+    entity: Entity<InstanceSettingsView>,
+) -> AnyElement {
+    use crate::settings::ValueKind;
+    let label = div()
+        .w(px(240.))
+        .flex_shrink_0()
+        .text_sm()
+        .child(def.label);
+    let control: AnyElement = match def.kind {
+        ValueKind::Bool => {
+            let on = matches!(
+                value.to_ascii_lowercase().as_str(),
+                "true" | "1" | "yes" | "on"
+            );
+            let key = def.key;
+            let e = entity.clone();
+            div()
+                .id(gpui::ElementId::Name(SharedString::from(format!("bool-{key}"))))
+                .px_3()
+                .py_1()
+                .w(px(80.))
+                .rounded_md()
+                .cursor_pointer()
+                .bg(if on { rgb(theme.accent) } else { rgb(theme.surface) })
+                .text_color(if on { rgb(theme.on_accent) } else { rgb(theme.text) })
+                .border_1()
+                .border_color(rgb(theme.border))
+                .child(if on { "On" } else { "Off" })
+                .on_click(move |_, _, cx| {
+                    e.update(cx, |this, cx| this.toggle_bool(key, cx));
+                })
+                .into_any_element()
+        }
+        ValueKind::Path => {
+            let e = entity.clone();
+            let key = def.key;
+            let browse = div()
+                .id(gpui::ElementId::Name(SharedString::from(format!("browse-{key}"))))
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .cursor_pointer()
+                .bg(rgb(theme.surface))
+                .border_1()
+                .border_color(rgb(theme.border))
+                .child("Browse…")
+                .on_click(move |_, _, cx| {
+                    e.update(cx, |this, cx| this.browse_path(key, cx));
+                });
+            let mut row = div().flex().items_center().gap_2().w(px(420.));
+            if let Some(input) = input {
+                row = row.child(div().flex_1().child(input));
+            }
+            row.child(browse).into_any_element()
+        }
+        _ => match input {
+            Some(input) => div().w(px(420.)).child(input).into_any_element(),
+            None => div().into_any_element(),
+        },
+    };
+    div()
+        .id(gpui::ElementId::Name(SharedString::from(format!(
+            "inst-setting-{}",
+            def.key
+        ))))
+        .flex()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .py_2()
+        .border_b_1()
+        .border_color(rgb(theme.border))
+        .child(label)
+        .child(control)
+        .into_any_element()
 }
 
 pub fn open_instance_settings(

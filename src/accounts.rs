@@ -183,3 +183,42 @@ mod offline_tests {
         assert_ne!(u, offline_uuid("Someone"));
     }
 }
+
+/// Pick the account an instance should launch with.
+///
+/// An instance may pin a specific account (`UseAccountForInstance` +
+/// `InstanceAccountId`); otherwise the globally active account is used.
+pub fn account_for_instance(
+    data_root: &Path,
+    inst_dir: &Path,
+) -> Option<crate::auth::Account> {
+    let store = AccountStore::load(data_root);
+    if let Some(inst) = crate::instance::Instance::load(inst_dir) {
+        let pinned = inst
+            .settings
+            .get("UseAccountForInstance")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        if pinned {
+            let uuid = inst.settings.get("InstanceAccountId").cloned().unwrap_or_default();
+            if let Some(account) = store.accounts.iter().find(|a| a.uuid == uuid) {
+                return Some(account.clone());
+            }
+        }
+    }
+    store.active_account().cloned()
+}
+
+#[cfg(test)]
+mod instance_account_tests {
+    use super::*;
+
+    #[test]
+    fn falls_back_to_the_active_account() {
+        let td = tempfile::tempdir().unwrap();
+        let inst_dir = td.path().join("inst");
+        std::fs::create_dir_all(&inst_dir).unwrap();
+        std::fs::write(inst_dir.join("instance.cfg"), "[General]\n").unwrap();
+        assert!(account_for_instance(td.path(), &inst_dir).is_none());
+    }
+}

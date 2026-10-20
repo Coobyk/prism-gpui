@@ -150,6 +150,61 @@ pub fn pages() -> Vec<&'static str> {
     out
 }
 
+/// Registry of the per-instance settings Prism stores in `instance.cfg`.
+///
+/// Mirrors the keys registered by `MinecraftInstance::loadSettings` in
+/// `launcher/minecraft/MinecraftInstance.cpp`, so an instance edited by
+/// either launcher behaves the same.
+pub const INSTANCE_SETTINGS: &[SettingDef] = &[
+    // ---- Java ----
+    SettingDef { key: "JavaPath", section: "General", default: "", kind: ValueKind::Path, label: "Java path", page: "Java" },
+    SettingDef { key: "OverrideJavaLocation", section: "General", default: "false", kind: ValueKind::Bool, label: "Use this Java", page: "Java" },
+    SettingDef { key: "AutomaticJava", section: "General", default: "false", kind: ValueKind::Bool, label: "Automatic Java", page: "Java" },
+    SettingDef { key: "JvmArgs", section: "General", default: "", kind: ValueKind::Str, label: "JVM arguments", page: "Java" },
+    SettingDef { key: "OverrideJavaArgs", section: "General", default: "false", kind: ValueKind::Bool, label: "Override JVM arguments", page: "Java" },
+    // ---- Memory ----
+    SettingDef { key: "MinMemAlloc", section: "General", default: "512", kind: ValueKind::Int, label: "Minimum memory (MB)", page: "Memory" },
+    SettingDef { key: "MaxMemAlloc", section: "General", default: "4096", kind: ValueKind::Int, label: "Maximum memory (MB)", page: "Memory" },
+    SettingDef { key: "OverrideMemory", section: "General", default: "false", kind: ValueKind::Bool, label: "Override memory", page: "Memory" },
+    // ---- Minecraft ----
+    SettingDef { key: "MinecraftWinWidth", section: "General", default: "854", kind: ValueKind::Int, label: "Window width", page: "Minecraft" },
+    SettingDef { key: "MinecraftWinHeight", section: "General", default: "480", kind: ValueKind::Int, label: "Window height", page: "Minecraft" },
+    SettingDef { key: "LaunchMaximized", section: "General", default: "false", kind: ValueKind::Bool, label: "Launch maximized", page: "Minecraft" },
+    SettingDef { key: "OverrideWindow", section: "General", default: "false", kind: ValueKind::Bool, label: "Override window size", page: "Minecraft" },
+    SettingDef { key: "UseNativeOpenAL", section: "General", default: "false", kind: ValueKind::Bool, label: "Native OpenAL", page: "Minecraft" },
+    SettingDef { key: "UseNativeGLFW", section: "General", default: "false", kind: ValueKind::Bool, label: "Native GLFW", page: "Minecraft" },
+    SettingDef { key: "UseNativeSDL", section: "General", default: "false", kind: ValueKind::Bool, label: "Native SDL", page: "Minecraft" },
+    SettingDef { key: "OnlineFixes", section: "General", default: "false", kind: ValueKind::Bool, label: "Online fixes", page: "Minecraft" },
+    // ---- Server / world ----
+    SettingDef { key: "JoinServerOnLaunch", section: "General", default: "false", kind: ValueKind::Bool, label: "Join a server on launch", page: "Server" },
+    SettingDef { key: "JoinServerOnLaunchAddress", section: "General", default: "", kind: ValueKind::Str, label: "Server address", page: "Server" },
+    SettingDef { key: "JoinWorldOnLaunch", section: "General", default: "", kind: ValueKind::Str, label: "World to join", page: "Server" },
+    // ---- Account ----
+    SettingDef { key: "UseAccountForInstance", section: "General", default: "false", kind: ValueKind::Bool, label: "Use a specific account", page: "Account" },
+    SettingDef { key: "InstanceAccountId", section: "General", default: "", kind: ValueKind::Str, label: "Account UUID", page: "Account" },
+    // ---- Commands / environment ----
+    SettingDef { key: "PreLaunchCommand", section: "General", default: "", kind: ValueKind::Str, label: "Pre-launch command", page: "Commands" },
+    SettingDef { key: "PostExitCommand", section: "General", default: "", kind: ValueKind::Str, label: "Post-exit command", page: "Commands" },
+    SettingDef { key: "WrapperCommand", section: "General", default: "", kind: ValueKind::Str, label: "Wrapper command", page: "Commands" },
+    SettingDef { key: "EnvVars", section: "General", default: "", kind: ValueKind::Str, label: "Environment variables", page: "Commands" },
+    // ---- Export ----
+    SettingDef { key: "ExportName", section: "General", default: "", kind: ValueKind::Str, label: "Export name", page: "Export" },
+    SettingDef { key: "ExportVersion", section: "General", default: "1.0.0", kind: ValueKind::Str, label: "Export version", page: "Export" },
+    SettingDef { key: "ExportSummary", section: "General", default: "", kind: ValueKind::Str, label: "Export summary", page: "Export" },
+    SettingDef { key: "ExportAuthor", section: "General", default: "", kind: ValueKind::Str, label: "Export author", page: "Export" },
+];
+
+/// The pages of the per-instance settings window.
+pub fn instance_pages() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for d in INSTANCE_SETTINGS {
+        if !out.contains(&d.page) {
+            out.push(d.page);
+        }
+    }
+    out
+}
+
 /// A sectioned INI document that preserves section order and unknown keys.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IniFile {
