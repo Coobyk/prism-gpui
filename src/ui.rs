@@ -13,31 +13,43 @@ pub enum Tab {
     Mods,
     ResourcePacks,
     ShaderPacks,
+    DataPacks,
+    TexturePacks,
     Worlds,
     Screenshots,
     Logs,
     CrashReports,
+    Notes,
+    Version,
 }
 
 impl Tab {
-    const ALL: [Tab; 7] = [
+    const ALL: [Tab; 11] = [
         Tab::Mods,
         Tab::ResourcePacks,
         Tab::ShaderPacks,
+        Tab::DataPacks,
+        Tab::TexturePacks,
         Tab::Worlds,
         Tab::Screenshots,
         Tab::Logs,
         Tab::CrashReports,
+        Tab::Notes,
+        Tab::Version,
     ];
     fn label(&self) -> String {
         crate::i18n::tr(match self {
             Tab::Mods => "Mods",
             Tab::ResourcePacks => "Resource Packs",
             Tab::ShaderPacks => "Shader Packs",
+            Tab::DataPacks => "Data Packs",
+            Tab::TexturePacks => "Texture Packs",
             Tab::Worlds => "Worlds",
             Tab::Screenshots => "Screenshots",
             Tab::Logs => "Logs",
             Tab::CrashReports => "Crash Reports",
+            Tab::Notes => "Notes",
+            Tab::Version => "Version",
         })
     }
     fn subdir(&self) -> &'static [&'static str] {
@@ -45,11 +57,19 @@ impl Tab {
             Tab::Mods => &["mods"],
             Tab::ResourcePacks => &["resourcepacks"],
             Tab::ShaderPacks => &["shaderpacks"],
+            Tab::DataPacks => &["datapacks"],
+            Tab::TexturePacks => &["texturepacks"],
             Tab::Worlds => &["saves"],
             Tab::Screenshots => &["screenshots"],
             Tab::Logs => &["logs"],
             Tab::CrashReports => &["crash-reports"],
+            // The notes and the version list are not folders.
+            Tab::Notes | Tab::Version => &[],
         }
+    }
+    /// Tabs that show a text editor instead of a file list.
+    fn is_special(&self) -> bool {
+        matches!(self, Tab::Notes | Tab::Version)
     }
 }
 
@@ -68,6 +88,12 @@ pub struct InstanceView {
     auto_focused: bool,
     /// Set after the first Delete click; a second click removes the instance.
     pending_delete: bool,
+    /// The instance's notes, edited in the Notes tab.
+    notes: String,
+    /// The components the instance is made of (the Version tab).
+    components: Vec<(String, String, String)>,
+    /// The text editor used by the Notes tab.
+    notes_input: Entity<TextInput>,
 }
 
 impl InstanceView {
@@ -91,6 +117,13 @@ impl InstanceView {
             scroll: UniformListScrollHandle::default(),
             auto_focused: false,
             pending_delete: false,
+            notes: String::new(),
+            components: Vec::new(),
+            notes_input: cx.new(|cx| {
+                let mut t = TextInput::new("Notes", cx);
+                t.set_theme(theme, cx);
+                t
+            }),
         };
         v.refresh();
         v
@@ -153,6 +186,32 @@ impl InstanceView {
     }
 
     pub fn refresh(&mut self) {
+        // The notes and the version list are not file listings.
+        if self.tab == Tab::Notes {
+            let notes = crate::instance::Instance::load(&self.dir)
+                .and_then(|i| i.settings.get("notes").cloned())
+                .unwrap_or_default();
+            if notes != self.notes {
+                self.notes = notes.clone();
+            }
+            self.status = "Notes are stored in the instance settings".into();
+            return;
+        }
+        if self.tab == Tab::Version {
+            self.components = crate::meta::read_component_pack(&self.dir)
+                .map(|p| {
+                    p.components
+                        .into_iter()
+                        .map(|c| {
+                            let label = crate::metaindex::component_label(&c.uid).to_string();
+                            (c.uid, c.version, label)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            self.status = format!("{} components", self.components.len()).into();
+            return;
+        }
         let dir = self.current_dir();
         let mut names: Vec<String> = Vec::new();
         if let Ok(rd) = std::fs::read_dir(&dir) {
@@ -173,7 +232,158 @@ impl InstanceView {
         } else if self.selected >= self.entries.len() {
             self.selected = self.entries.len() - 1;
         }
-        self.status = format!("{} in {}", self.entries.len(), dir.display()).into();
+        if self.tab.is_special() {
+            self.status = self.tab.label().into();
+        } else {
+            self.status = format!("{} in {}", self.entries.len(), dir.display()).into();
+        }
+    }
+
+    /// Load the notes of the instance into the editor.
+    fn load_notes(&mut self, cx: &mut Context<Self>) {
+        let notes = crate::instance::Instance::load(&self.dir)
+            .and_then(|i| i.settings.get("notes").cloned())
+            .unwrap_or_default();
+        self.notes = notes.clone();
+        self.notes_input.update(cx, |t, cx| t.set_text(notes, cx));
+    }
+
+    /// Store the notes in the instance settings, like Prism's `BaseInstance`.
+    fn save_notes(&mut self, cx: &mut Context<Self>) {
+        let text = self.notes_input.read(cx).text().to_string();
+        self.notes = text.clone();
+        let mut inst = match crate::instance::Instance::load(&self.dir) {
+            Some(i) => i,
+            None => {
+                self.status = "Could not load instance.cfg".into();
+                cx.notify();
+                return;
+            }
+        };
+        inst.set("notes", &text);
+        match inst.save() {
+            Ok(()) => self.status = "Notes saved".into(),
+            Err(e) => self.status = format!("Could not save the notes: {e}").into(),
+        }
+        cx.notify();
+    }
+
+    /// The Notes tab: an editor for the instance's notes.
+    fn render_notes(&mut self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .h(px(40.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(self.name.clone())
+                    .child(
+                        div()
+                            .id("save-notes")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child(crate::i18n::tr("Save"))
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                this.save_notes(cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .p_3()
+                    .child(self.notes_input.clone()),
+            )
+            .into_any_element()
+    }
+
+    /// The Version tab: the components the instance is made of.
+    fn render_version(&mut self, theme: Theme, cx: &mut Context<Self>) -> AnyElement {
+        let rows: Vec<AnyElement> = self
+            .components
+            .iter()
+            .map(|(uid, version, label)| {
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_base().child(label.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(theme.subtext))
+                                    .child(uid.clone()),
+                            ),
+                    )
+                    .child(div().text_sm().child(version.clone()))
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .h(px(40.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(self.name.clone())
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .children(rows),
+            )
+            .into_any_element()
     }
 
     /// Minecraft version of this instance, from its component pack.
@@ -254,7 +464,7 @@ impl InstanceView {
 
 
 impl Render for InstanceView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Focus once so arrow keys/tab switching work without a click first.
         if !self.auto_focused {
             self.focus.focus(window);
@@ -279,12 +489,23 @@ impl Render for InstanceView {
                     .child(t.label())
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.tab = t2;
+                        if t2 == Tab::Notes {
+                            this.load_notes(cx);
+                        }
                         this.refresh();
                         cx.notify();
                     }))
                     .into_any_element()
             })
             .collect::<Vec<_>>();
+
+        // The Notes and the Version tabs do not show a file list.
+        if self.tab == Tab::Notes {
+            return self.render_notes(theme, cx);
+        }
+        if self.tab == Tab::Version {
+            return self.render_version(theme, cx);
+        }
 
         // Virtualised list: only the visible slice of entries is built.
         let tab = self.tab;
@@ -590,6 +811,7 @@ impl Render for InstanceView {
                     .children(tabs),
             )
             .child(div().flex_1().flex().flex_col().overflow_hidden().child(list))
+            .into_any_element()
     }
 }
 
