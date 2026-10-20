@@ -234,7 +234,7 @@ pub fn last_launch_time(instance_dir: &Path) -> u64 {
 }
 
 /// Split a `host:port` server address, defaulting to port 25565.
-fn split_server_address(address: &str) -> (String, u16) {
+pub fn split_server_address(address: &str) -> (String, u16) {
     match address.rsplit_once(':') {
         Some((host, port)) => match port.parse::<u16>() {
             Ok(p) => (host.to_string(), p),

@@ -278,9 +278,31 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             Ok(())
         }
         Some("launch") => {
-            let name = args.get(1).ok_or("usage: launch <instance> [--dry-run]")?;
+            let name = args.get(1).ok_or(
+                "usage: launch <instance> [--dry-run] [--server <address>] [--world <world>] \
+                 [--offline <name>] [--profile <uuid>]",
+            )?;
             let dry_run = args.iter().any(|a| a == "--dry-run");
-            cmd_launch(data_root, name, dry_run)
+            // The options Prism offers for a launch.
+            let option = |flag: &str| -> Option<String> {
+                args.iter()
+                    .position(|a| a == flag)
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+            };
+            let server = option("--server");
+            let world = option("--world");
+            let offline = option("--offline");
+            let profile = option("--profile");
+            cmd_launch(
+                data_root,
+                name,
+                dry_run,
+                server.as_deref(),
+                world.as_deref(),
+                offline.as_deref(),
+                profile.as_deref(),
+            )
         }
         Some("profile") => {
             let name = args.get(1).ok_or("usage: profile <instance>")?;
@@ -1671,7 +1693,7 @@ fn cmd_profile(data_root: &Path, name: &str) -> Result<(), String> {
         .ok_or_else(|| format!("instance not found: {name}"))?;
     let java_path = java::ensure_for_instance(data_root, &inst.dir)?;
     let account = crate::accounts::account_for_instance(data_root, &inst.dir);
-    let profile =
+    let mut profile =
         launch::build_profile_with_account(&inst.dir, data_root, &java_path, account.as_ref())
             .ok_or("could not build launch profile")?;
     if let Some(pack) = meta::read_component_pack(&inst.dir) {
@@ -1701,16 +1723,49 @@ fn cmd_profile(data_root: &Path, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_launch(data_root: &Path, name: &str, dry_run: bool) -> Result<(), String> {
+fn cmd_launch(
+    data_root: &Path,
+    name: &str,
+    dry_run: bool,
+    server: Option<&str>,
+    world: Option<&str>,
+    offline: Option<&str>,
+    profile: Option<&str>,
+) -> Result<(), String> {
     let inst = instance::discover_instances(data_root)
         .into_iter()
         .find(|i| i.name == name)
         .ok_or_else(|| format!("instance not found: {name}"))?;
     let java_path = java::ensure_for_instance(data_root, &inst.dir)?;
-    let account = crate::accounts::account_for_instance(data_root, &inst.dir);
-    let profile =
+    // The account can be chosen on the command line, like Prism's --profile
+    // and --offline.
+    let account: Option<crate::auth::Account> = if let Some(profile) = profile {
+        let store = crate::accounts::AccountStore::load(data_root);
+        store
+            .accounts
+            .iter()
+            .find(|a| a.uuid == profile || a.username == profile)
+            .cloned()
+            .ok_or_else(|| format!("no account named {profile}"))?
+            .into()
+    } else if let Some(offline) = offline {
+        Some(crate::accounts::offline_account(offline))
+    } else {
+        crate::accounts::account_for_instance(data_root, &inst.dir)
+    };
+    let mut profile =
         launch::build_profile_with_account(&inst.dir, data_root, &java_path, account.as_ref())
             .ok_or("could not build launch profile")?;
+    // Prism joins a server or a world that is given on the command line.
+    if let Some(server) = server {
+        let (host, port) = launch::split_server_address(server);
+        profile.game_args.push("--quickPlayMultiplayer".into());
+        profile.game_args.push(format!("{host}:{port}"));
+    }
+    if let Some(world) = world {
+        profile.game_args.push("--quickPlaySingleplayer".into());
+        profile.game_args.push(world.to_string());
+    }
     println!(
         "launching {} with {} as {} ({} jars, main {})",
         inst.name,
