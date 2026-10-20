@@ -904,12 +904,35 @@ pub fn open_instance(name: &str, dir: &Path, data_root: &Path, theme: Theme, cx:
 use crate::instance::create_instance;
 use crate::widgets::text_input::TextInput;
 
+/// The pages of the "New Instance" dialog, in the order Prism lists them.
+const NEW_INSTANCE_PAGES: &[&str] = &[
+    "Custom",
+    "Import",
+    "Modrinth",
+    "CurseForge",
+    "FTB",
+    "ATLauncher",
+    "Technic",
+];
+
 pub struct NewInstanceView {
+    /// The page that is shown.
+    page: usize,
+    /// The name of the new instance.
     name_input: Entity<TextInput>,
+    /// The Minecraft version of the new instance.
     version_input: Entity<TextInput>,
+    /// The search field of the platform pages.
+    search_input: Entity<TextInput>,
+    /// The modpacks the platform pages found.
+    hits: Vec<(String, String, String)>,
+    /// The platform the results come from.
+    platform: Option<crate::modplatform::Platform>,
     status: SharedString,
     theme: Theme,
     data_root: PathBuf,
+    focus: FocusHandle,
+    auto_focused: bool,
 }
 
 impl NewInstanceView {
@@ -924,15 +947,27 @@ impl NewInstanceView {
             t.set_theme(theme, cx);
             t
         });
+        let search_input = cx.new(|cx| {
+            let mut t = TextInput::new("Search for a modpack", cx);
+            t.set_theme(theme, cx);
+            t
+        });
         Self {
+            page: 0,
             name_input,
             version_input,
+            search_input,
+            hits: Vec::new(),
+            platform: None,
             status: "Ready".into(),
             theme,
             data_root,
+            focus: cx.focus_handle(),
+            auto_focused: false,
         }
     }
 
+    /// Create a vanilla instance with the name and the version of the form.
     fn create(&mut self, cx: &mut Context<Self>) {
         let name = self.name_input.read(cx).text().trim().to_string();
         let version = self.version_input.read(cx).text().trim().to_string();
@@ -942,41 +977,454 @@ impl NewInstanceView {
             return;
         }
         match create_instance(&self.data_root, &name, &version) {
-            Ok(dir) => self.status = format!("Created {}", dir.display()).into(),
+            Ok(dir) => {
+                self.status = format!("Created {}", dir.display()).into();
+                cx.quit();
+            }
             Err(e) => self.status = format!("Error: {e}").into(),
         }
         cx.notify();
     }
+
+    /// Import a pack archive into a new instance.
+    fn import(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Select a modpack or an instance archive".into()),
+        });
+        let root = self.data_root.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.first().cloned() else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::pack::import_archive(&path, &root, None) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = match result {
+                    Ok(result) => format!("Imported {} as {}", result.summary, result.name).into(),
+                    Err(e) => format!("Import failed: {e}").into(),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Search a platform for modpacks.
+    fn search(&mut self, cx: &mut Context<Self>) {
+        let Some(platform) = self.platform else {
+            return;
+        };
+        let query = self.search_input.read(cx).text().trim().to_string();
+        if query.is_empty() {
+            self.status = "Enter a query".into();
+            cx.notify();
+            return;
+        }
+        self.status = format!("Searching {}…", platform.label()).into();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::modplatform::platform::search(
+                        platform,
+                        crate::modplatform::ContentKind::Modpack,
+                        &crate::modplatform::SearchQuery {
+                            text: query,
+                            loader: None,
+                            game_version: None,
+                        },
+                    )
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(hits) => {
+                        this.hits = hits
+                            .into_iter()
+                            .map(|h| (h.title, h.id, h.slug))
+                            .collect();
+                        this.status = format!("{} results", this.hits.len()).into();
+                    }
+                    Err(e) => this.status = format!("Search failed: {e}").into(),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Install the selected modpack as a new instance.
+    fn install(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(platform) = self.platform else {
+            return;
+        };
+        let Some((title, id, slug)) = self.hits.get(index).cloned() else {
+            return;
+        };
+        let root = self.data_root.clone();
+        self.status = format!("Installing {title}…").into();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let message = cx
+                .background_executor()
+                .spawn(async move {
+                    let instances_root = crate::instance::instances_dir(&root);
+                    let dir_name = slug
+                        .chars()
+                        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+                        .collect::<String>();
+                    let inst_dir = instances_root.join(&dir_name);
+                    if inst_dir.exists() {
+                        return format!("instance already exists: {dir_name}");
+                    }
+                    if let Err(e) = std::fs::create_dir_all(inst_dir.join("minecraft")) {
+                        return format!("mkdir failed: {e}");
+                    }
+                    let cfg = format!(
+                        "[General]\nInstanceType=OneSix\nConfigVersion=1.3\nname={dir_name}\n"
+                    );
+                    let _ = std::fs::write(inst_dir.join("instance.cfg"), cfg);
+                    let hit = crate::modplatform::PlatformHit {
+                        platform,
+                        kind: crate::modplatform::ContentKind::Modpack,
+                        id,
+                        slug: dir_name.clone(),
+                        title: title.clone(),
+                        description: String::new(),
+                        downloads: 0,
+                        extra: String::new(),
+                    };
+                    match crate::modplatform::platform::install(
+                        &hit,
+                        &inst_dir,
+                        None,
+                        None,
+                    ) {
+                        Ok(outcome) => {
+                            for (uid, version) in &outcome.components {
+                                let _ = crate::meta::set_component(&inst_dir, uid, version);
+                            }
+                            outcome.message
+                        }
+                        Err(e) => format!("Install failed: {e}"),
+                    }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.status = message.into();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
 }
 
 impl Render for NewInstanceView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        if !self.auto_focused {
+            self.focus.focus(window);
+            self.auto_focused = true;
+        }
+        let page_name = NEW_INSTANCE_PAGES.get(self.page).copied().unwrap_or("Custom");
+
+        // The page list on the left, like Prism's new instance dialog.
+        let pages: Vec<AnyElement> = NEW_INSTANCE_PAGES
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let selected = i == self.page;
+                div()
+                    .id(gpui::ElementId::Name(SharedString::from(format!("new-page-{p}"))))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .h(px(32.0))
+                    .px_3()
+                    .cursor_pointer()
+                    .bg(if selected {
+                        rgb(theme.accent)
+                    } else {
+                        rgb(theme.background)
+                    })
+                    .text_color(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.text)
+                    })
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(
+                        div()
+                            .w(px(24.))
+                            .h(px(24.))
+                            .rounded_md()
+                            .bg(if selected {
+                                rgb(theme.on_accent)
+                            } else {
+                                rgb(theme.alternate)
+                            }),
+                    )
+                    .child(div().text_sm().child(crate::i18n::tr(p)))
+                    .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                        this.page = i;
+                        // The platform pages need to know their platform.
+                        this.platform = match *p {
+                            "Modrinth" => Some(crate::modplatform::Platform::Modrinth),
+                            "CurseForge" => Some(crate::modplatform::Platform::CurseForge),
+                            "FTB" => Some(crate::modplatform::Platform::Ftb),
+                            "ATLauncher" => Some(crate::modplatform::Platform::AtLauncher),
+                            "Technic" => Some(crate::modplatform::Platform::Technic),
+                            _ => None,
+                        };
+                        this.hits.clear();
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        // The content of the selected page.
+        let content: AnyElement = match page_name {
+            "Custom" => div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .p_4()
+                .child(div().text_sm().child(crate::i18n::tr("Instance name")))
+                .child(div().w(px(360.)).child(self.name_input.clone()))
+                .child(div().text_sm().child(crate::i18n::tr("Minecraft version")))
+                .child(div().w(px(360.)).child(self.version_input.clone()))
+                .child(
+                    div()
+                        .id("create-instance")
+                        .px_3()
+                        .py_1()
+                        .w(px(120.))
+                        .rounded_md()
+                        .bg(rgb(theme.accent))
+                        .text_color(rgb(theme.on_accent))
+                        .cursor_pointer()
+                        .child(crate::i18n::tr("Create"))
+                        .on_click(cx.listener(|this: &mut Self, _, _, cx| this.create(cx))),
+                )
+                .into_any_element(),
+            "Import" => div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .p_4()
+                .child(
+                    div()
+                        .text_sm()
+                        .child(crate::i18n::tr(
+                            "Import a .mrpack, a CurseForge pack or a Prism instance archive.",
+                        )),
+                )
+                .child(
+                    div()
+                        .id("import-instance")
+                        .px_3()
+                        .py_1()
+                        .w(px(200.))
+                        .rounded_md()
+                        .bg(rgb(theme.accent))
+                        .text_color(rgb(theme.on_accent))
+                        .cursor_pointer()
+                        .child(crate::i18n::tr("Choose a file…"))
+                        .on_click(cx.listener(|this: &mut Self, _, _, cx| this.import(cx))),
+                )
+                .into_any_element(),
+            _ => {
+                // The platform pages: a search field and the modpacks it found.
+                let hits = self.hits.clone();
+                let entity = cx.entity();
+                let list: AnyElement = if hits.is_empty() {
+                    div()
+                        .p_4()
+                        .text_color(rgb(theme.subtext))
+                        .child(crate::i18n::tr("No results yet."))
+                        .into_any_element()
+                } else {
+                    div()
+                        .id("new-hit-list")
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .overflow_y_scroll()
+                        .children(hits.iter().enumerate().map(|(i, (title, _, slug))| {
+                            let entity = entity.clone();
+                            div()
+                                .id(gpui::ElementId::Name(SharedString::from(format!(
+                                    "new-hit-{slug}"
+                                ))))
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .px_3()
+                                .py_2()
+                                .border_b_1()
+                                .border_color(rgb(theme.border))
+                                .cursor_pointer()
+                                .hover(|style| style.bg(rgb(theme.alternate)))
+                                .child(div().text_sm().child(title.clone()))
+                                .child(
+                                    div()
+                                        .id(gpui::ElementId::Name(SharedString::from(format!(
+                                            "new-install-{slug}"
+                                        ))))
+                                        .px_3()
+                                        .py_1()
+                                        .rounded_md()
+                                        .bg(rgb(theme.accent))
+                                        .text_color(rgb(theme.on_accent))
+                                        .cursor_pointer()
+                                        .child(crate::i18n::tr("Install"))
+                                        .on_click(move |_, _, cx| {
+                                            entity.update(cx, |this, cx| this.install(i, cx));
+                                        }),
+                                )
+                                .into_any_element()
+                        }))
+                        .into_any_element()
+                };
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .p_4()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(div().w(px(360.)).child(self.search_input.clone()))
+                            .child(
+                                div()
+                                    .id("new-search")
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(rgb(theme.accent))
+                                    .text_color(rgb(theme.on_accent))
+                                    .cursor_pointer()
+                                    .child(crate::i18n::tr("Search"))
+                                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                        this.search(cx)
+                                    })),
+                            ),
+                    )
+                    .child(list)
+                    .into_any_element()
+            }
+        };
+
         div()
             .flex()
             .flex_col()
-            .gap_3()
-            .p_4()
             .size_full()
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
-            .child(div().child(crate::i18n::tr("New Instance")))
-            .child(div().w(px(360.)).child(self.name_input.clone()))
-            .child(div().w(px(360.)).child(self.version_input.clone()))
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
+                let pages = NEW_INSTANCE_PAGES;
+                match ev.keystroke.key.as_str() {
+                    "left" => {
+                        this.page = (this.page + pages.len() - 1) % pages.len();
+                        cx.notify();
+                    }
+                    "right" => {
+                        this.page = (this.page + 1) % pages.len();
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            }))
             .child(
                 div()
-                    .id("create-instance")
-                    .px_3()
-                    .py_1()
-                    .w(px(120.))
-                    .rounded_md()
-                    .bg(rgb(theme.accent))
-                    .text_color(rgb(theme.on_accent))
-                    .cursor_pointer()
-                    .child(crate::i18n::tr("Create"))
-                    .on_click(cx.listener(|this: &mut Self, _, _, cx| this.create(cx))),
+                    .flex()
+                    .flex_1()
+                    .flex()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .id("new-instance-pages")
+                            .w(px(crate::theme::metrics::PAGE_LIST_WIDTH))
+                            .flex_shrink_0()
+                            .flex()
+                            .flex_col()
+                            .py_1()
+                            .bg(rgb(theme.base))
+                            .border_r_1()
+                            .border_color(rgb(theme.border))
+                            .children(pages),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .h(px(30.0))
+                                    .px_4()
+                                    .text_lg()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child(crate::i18n::tr(page_name)),
+                            )
+                            .child(content),
+                    ),
             )
-            .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .h(px(40.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_t_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    )
+                    .child(
+                        div()
+                            .id("new-instance-close")
+                            .ml_auto()
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Close"))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.quit();
+                            })),
+                    ),
+            )
     }
 }
 
