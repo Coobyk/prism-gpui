@@ -104,6 +104,8 @@ pub struct InstanceView {
     components: Vec<(String, String, String)>,
     /// The text editor used by the Notes tab.
     notes_input: Entity<TextInput>,
+    /// The metadata of the selected mod.
+    mod_info: Option<crate::modinfo::ModInfo>,
 }
 
 impl InstanceView {
@@ -134,6 +136,7 @@ impl InstanceView {
                 t.set_theme(theme, cx);
                 t
             }),
+            mod_info: None,
         };
         v.refresh();
         v
@@ -181,6 +184,22 @@ impl InstanceView {
     /// The entry that is selected in the list.
     fn selected_entry(&self) -> Option<String> {
         self.entries.get(self.selected).cloned()
+    }
+
+    /// Read the metadata of the selected mod.
+    fn load_mod_info(&mut self) {
+        self.mod_info = None;
+        if self.tab != Tab::Mods {
+            return;
+        }
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        if entry.ends_with('/') {
+            return;
+        }
+        let path = self.current_dir().join(&entry);
+        self.mod_info = crate::modinfo::read_mod_info(&path);
     }
 
     /// Open the folder of the selected entry.
@@ -393,6 +412,7 @@ impl InstanceView {
         } else {
             self.status = format!("{} in {}", self.entries.len(), dir.display()).into();
         }
+        self.load_mod_info();
     }
 
     /// Load the notes of the instance into the editor.
@@ -858,6 +878,32 @@ impl Render for InstanceView {
                     .bg(rgb(theme.surface))
                     .border_t_1()
                     .border_color(rgb(theme.border))
+                    // The metadata of the selected mod.
+                    .child(match &self.mod_info {
+                        Some(info) => div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .px_4()
+                            .py_2()
+                            .border_b_1()
+                            .border_color(rgb(theme.border))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(div().text_sm().child(info.name.clone()))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(theme.subtext))
+                                            .child(info.summary()),
+                                    ),
+                            )
+                            .into_any_element(),
+                        None => div().into_any_element(),
+                    })
                     // The actions for the selected entry.
                     .child(
                         div()

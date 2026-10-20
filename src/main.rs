@@ -20,6 +20,7 @@ mod modbrowser;
 mod modplatform;
 mod nbt;
 mod net;
+mod modinfo;
 mod news;
 mod plugin;
 mod theme;
