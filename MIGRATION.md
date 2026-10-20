@@ -240,4 +240,3 @@ absent).
 - In-app pixel-level skin painting (upload/activate/reset are done).
 - CurseForge downloads need `CF_API_KEY`; the other platforms are wired into
   the CLI and the content browser.
-- Auto-update application (check + `--apply` only today).
