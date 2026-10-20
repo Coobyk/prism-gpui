@@ -371,7 +371,15 @@ impl MainWindow {
 
     /// Create a desktop shortcut for the selected instance.
     fn create_shortcut(&mut self, cx: &mut Context<Self>) {
-        self.status = "Shortcuts are not supported on this platform yet".into();
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        match crate::desktop::create_shortcut(&row.name, &self.data_root) {
+            Ok(path) => {
+                self.status = format!("Created {}", path.display()).into();
+            }
+            Err(e) => self.status = format!("Could not create the shortcut: {e}").into(),
+        }
         cx.notify();
     }
 

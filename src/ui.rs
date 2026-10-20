@@ -237,6 +237,42 @@ impl InstanceView {
         );
     }
 
+    /// Pick the icon of the instance.
+    fn choose_icon(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Select an instance icon".into()),
+        });
+        let dir = self.dir.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.first().cloned() else {
+                return;
+            };
+            let target = dir.join("icon.png");
+            let copied = std::fs::copy(&path, &target);
+            this.update(cx, |this, cx| {
+                match copied {
+                    Ok(_) => {
+                        if let Some(mut inst) = crate::instance::Instance::load(&this.dir) {
+                            inst.set("IconKey", "icon.png");
+                            let _ = inst.save();
+                        }
+                        this.status = "The icon was changed".into();
+                    }
+                    Err(e) => this.status = format!("Could not copy the icon: {e}").into(),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Enable or disable a mod, resource pack, shader or data pack.
     ///
     /// Minecraft skips the files that end in `.disabled`, which is how Prism
@@ -856,6 +892,21 @@ impl Render for InstanceView {
                                     .child(crate::i18n::tr("Rename"))
                                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                                         this.rename_selected_world(cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("entry-icon")
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child(crate::i18n::tr("Icon"))
+                                    .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                        this.choose_icon(cx)
                                     })),
                             )
                             .child(
