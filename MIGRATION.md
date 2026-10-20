@@ -123,8 +123,8 @@ This validates the data layer + launch path before tackling UI breadth.
 ## 6. Non-goals for v1
 
 - Full mod-platform parity (Modrinth first).
-- Plugin system (Qt-based) — drop or reimplement later.
-- In-app skin editor.
+- The Qt plugin system — reimplemented natively in Rust instead.
+- Pixel-level skin painting (skin upload/activate/reset are implemented).
 
 ## 7. Effort estimate
 
