@@ -886,7 +886,7 @@ fn print_help() {
     println!("  search <query>    search Modrinth");
     println!("  install <instance> <slug>  install a Modrinth mod");
     println!("  packinfo <file>   inspect a modpack");
-    println!("  import <file> [name]  import a modpack");
+    println!("  import <file|url> [name]  import a modpack");
     println!("  export <instance> <file> [format]  export (mrpack|curseforge|mmc)");
     println!("  components <instance>  list components");
     println!("  versions <uid>    list available versions for a component");
@@ -1596,6 +1596,13 @@ fn cmd_packinfo(path: &Path) -> Result<(), String> {
 }
 
 fn cmd_import(data_root: &Path, path: &Path, name: Option<&str>) -> Result<(), String> {
+    // A URL is downloaded first and then imported like a local file.
+    if let Some(url) = path.to_str() {
+        if url.starts_with("http://") || url.starts_with("https://") {
+            let file = download_to_temp(url)?;
+            return cmd_import(data_root, &file, name);
+        }
+    }
     // `import_archive` detects mrpack / CurseForge / Prism zips from their
     // contents, materialises components and picks a non-colliding name.
     let result = crate::pack::import_archive(path, data_root, name)?;
@@ -1604,6 +1611,18 @@ fn cmd_import(data_root: &Path, path: &Path, name: Option<&str>) -> Result<(), S
         println!("  component {uid} {version}");
     }
     Ok(())
+}
+
+/// Download a URL into a temporary file and return its path.
+fn download_to_temp(url: &str) -> Result<std::path::PathBuf, String> {
+    let name = url
+        .rsplit('/')
+        .find(|part| !part.is_empty())
+        .unwrap_or("download");
+    let path = std::env::temp_dir().join(format!("prism-import-{name}"));
+    println!("downloading {url}…");
+    crate::net::download_verified(url, &path, None)?;
+    Ok(path)
 }
 
 fn cmd_export(data_root: &Path, name: &str, out: &Path, format: &str) -> Result<(), String> {

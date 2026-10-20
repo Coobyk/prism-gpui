@@ -563,7 +563,7 @@ impl Render for MainWindow {
                     }
                     "s" => {
                         let settings = crate::settings::GlobalSettings::load(&this.data_root);
-                        ui::open_settings(settings, this.theme, cx);
+                        ui::open_settings(settings, this.data_root.clone(), this.theme, cx);
                     }
                     _ => {}
                 }
@@ -756,7 +756,7 @@ impl MainWindow {
                     .child(crate::i18n::tr("Settings..."))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let settings = crate::settings::GlobalSettings::load(&this.data_root);
-                        ui::open_settings(settings, this.theme, cx);
+                        ui::open_settings(settings, this.data_root.clone(), this.theme, cx);
                     })),
             )
             .child(
@@ -908,7 +908,7 @@ impl MainWindow {
             CreateShortcut => self.create_shortcut(cx),
             Settings => {
                 let settings = crate::settings::GlobalSettings::load(&self.data_root);
-                ui::open_settings(settings, self.theme, cx);
+                ui::open_settings(settings, self.data_root.clone(), self.theme, cx);
             }
             CloseWindow => cx.quit(),
             UndoTrash => {
@@ -916,7 +916,7 @@ impl MainWindow {
             }
             Themes => {
                 let settings = crate::settings::GlobalSettings::load(&self.data_root);
-                ui::open_settings(settings, self.theme, cx);
+                ui::open_settings(settings, self.data_root.clone(), self.theme, cx);
             }
             Cat => {
                 self.status = "Meow!".into();
@@ -1363,7 +1363,7 @@ fn main() {
                 }
                 "settings" => {
                     let settings = crate::settings::GlobalSettings::load(&root);
-                    ui::open_settings(settings, theme, cx);
+                    ui::open_settings(settings, (*root).clone(), theme, cx);
                 }
                 "accounts" => {
                     ui::open_accounts((*root).clone(), theme, cx);

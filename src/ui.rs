@@ -1612,6 +1612,8 @@ use crate::settings::{GlobalSettings, ValueKind, SETTINGS, pages};
 
 pub struct SettingsView {
     settings: GlobalSettings,
+    /// The data root, used to find the installed Java versions.
+    data_root: PathBuf,
     page: usize,
     /// Text inputs for every text/path/secret setting.
     inputs: Vec<(&'static crate::settings::SettingDef, Entity<TextInput>)>,
@@ -1622,7 +1624,12 @@ pub struct SettingsView {
 }
 
 impl SettingsView {
-    pub fn new(settings: GlobalSettings, theme: Theme, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        settings: GlobalSettings,
+        data_root: PathBuf,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let inputs = SETTINGS
             .iter()
             .filter(|d| d.kind != ValueKind::Bool)
@@ -1642,6 +1649,7 @@ impl SettingsView {
             .collect();
         Self {
             settings,
+            data_root,
             page: 0,
             inputs,
             status: "Changes are saved when you press Save".into(),
@@ -1793,12 +1801,93 @@ impl Render for SettingsView {
                 (d, input, value)
             })
             .collect();
+        // The Java page lists the Java installations that were found.
+        let java_list: AnyElement = if page_name == "Java" {
+            let installs = crate::java::discover_java(&self.data_root);
+            let java_entity = cx.entity();
+            if installs.is_empty() {
+                div()
+                    .p_3()
+                    .text_sm()
+                    .text_color(rgb(theme.subtext))
+                    .child(crate::i18n::tr(
+                        "No Java installation was found. The launcher can download one.",
+                    ))
+                    .into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .p_3()
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(crate::i18n::tr("Java installations")),
+                    )
+                    .children(installs.iter().map(|install| {
+                        let path = install.path.display().to_string();
+                        let version = install.version.clone();
+                        let path_use = path.clone();
+                        let java_entity = java_entity.clone();
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .py_1()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(div().text_sm().child(version))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(theme.subtext))
+                                            .child(path),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                                        "java-use-{path_use}"
+                                    ))))
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child(crate::i18n::tr("Use"))
+                                    .on_click(move |_, _, cx| {
+                                        let path = path_use.clone();
+                                        java_entity.update(cx, |this, cx| {
+                                            this.settings.set("JavaPath", &path);
+                                            this.status =
+                                                format!("Using {path}").into();
+                                            cx.notify();
+                                        });
+                                    }),
+                            )
+                    }))
+                    .into_any_element()
+            }
+        } else {
+            div().into_any_element()
+        };
+
         let entity = cx.entity();
+        let entity_rows = entity.clone();
         let list = uniform_list("settings-rows", rows.len(), move |range, _window, _cx| {
             range
                 .filter_map(|i| {
                     let (def, input, value) = rows.get(i)?.clone();
-                    Some(settings_row(def, input, value, theme, entity.clone()))
+                    Some(settings_row(def, input, value, theme, entity_rows.clone()))
                 })
                 .collect::<Vec<_>>()
         })
@@ -1862,6 +1951,7 @@ impl Render for SettingsView {
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .child(crate::i18n::tr(page_name)),
                             )
+                            .child(java_list)
                             .child(list),
                     ),
             )
@@ -2041,6 +2131,7 @@ fn settings_row(
 
 pub fn open_settings(
     settings: GlobalSettings,
+    data_root: PathBuf,
     theme: Theme,
     cx: &mut App,
 ) -> Option<gpui::WindowHandle<SettingsView>> {
@@ -2054,7 +2145,9 @@ pub fn open_settings(
             }),
             ..Default::default()
         },
-        move |_, cx| cx.new(|cx| SettingsView::new(settings, theme, cx)),
+        move |_, cx| {
+            cx.new(|cx| SettingsView::new(settings, data_root.clone(), theme, cx))
+        },
     )
     .ok()
 }
