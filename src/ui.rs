@@ -29,8 +29,8 @@ impl Tab {
         Tab::Logs,
         Tab::CrashReports,
     ];
-    fn label(&self) -> &'static str {
-        match self {
+    fn label(&self) -> String {
+        crate::i18n::tr(match self {
             Tab::Mods => "Mods",
             Tab::ResourcePacks => "Resource Packs",
             Tab::ShaderPacks => "Shader Packs",
@@ -38,7 +38,7 @@ impl Tab {
             Tab::Screenshots => "Screenshots",
             Tab::Logs => "Logs",
             Tab::CrashReports => "Crash Reports",
-        }
+        })
     }
     fn subdir(&self) -> &'static [&'static str] {
         match self {
@@ -295,7 +295,7 @@ impl Render for InstanceView {
             div()
                 .p_3()
                 .text_color(rgb(theme.subtext))
-                .child("(empty)")
+                .child(crate::i18n::tr("(empty)"))
                 .into_any_element()
         } else {
             uniform_list("instance-entries", entries.len(), move |range, _window, _cx| {
@@ -377,7 +377,7 @@ impl Render for InstanceView {
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child("Launch")
+                            .child(crate::i18n::tr("Launch"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 match crate::java::ensure_for_instance(&this.data_root, &this.dir) {
                                     Ok(java) => {
@@ -416,7 +416,7 @@ impl Render for InstanceView {
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child("Browse Mods")
+                            .child(crate::i18n::tr("Browse Mods"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 let dir = this.dir.clone();
                                 let root = this.data_root.clone();
@@ -433,7 +433,7 @@ impl Render for InstanceView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Settings")
+                            .child(crate::i18n::tr("Settings"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 if let Some(inst) = crate::instance::Instance::load(&this.dir) {
                                     crate::ui::open_instance_settings(this.dir.clone(), inst, theme, cx);
@@ -450,7 +450,7 @@ impl Render for InstanceView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Export…")
+                            .child(crate::i18n::tr("Export…"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 this.export(cx);
                             })),
@@ -465,7 +465,7 @@ impl Render for InstanceView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Duplicate")
+                            .child(crate::i18n::tr("Duplicate"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 this.duplicate(cx);
                             })),
@@ -500,7 +500,7 @@ impl Render for InstanceView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Open Folder")
+                            .child(crate::i18n::tr("Open Folder"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, _cx| {
                                 let _ = crate::desktop::open_path(&this.dir.join("minecraft"));
                             })),
@@ -515,7 +515,7 @@ impl Render for InstanceView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Export…")
+                            .child(crate::i18n::tr("Export…"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 this.export(cx);
                             })),
@@ -530,7 +530,7 @@ impl Render for InstanceView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Duplicate")
+                            .child(crate::i18n::tr("Duplicate"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 this.duplicate(cx);
                             })),
@@ -575,7 +575,7 @@ impl Render for InstanceView {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Screenshots")
+                            .child(crate::i18n::tr("Screenshots"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 crate::ui::open_screenshots(this.dir.clone(), theme, cx);
                             })),
@@ -743,7 +743,7 @@ impl Render for NewInstanceView {
             .size_full()
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
-            .child(div().child("New Instance"))
+            .child(div().child(crate::i18n::tr("New Instance")))
             .child(div().w(px(360.)).child(self.name_input.clone()))
             .child(div().w(px(360.)).child(self.version_input.clone()))
             .child(
@@ -756,7 +756,7 @@ impl Render for NewInstanceView {
                     .bg(rgb(theme.accent))
                     .text_color(rgb(theme.on_accent))
                     .cursor_pointer()
-                    .child("Create")
+                    .child(crate::i18n::tr("Create"))
                     .on_click(cx.listener(|this: &mut Self, _, _, cx| this.create(cx))),
             )
             .child(div().text_sm().text_color(rgb(theme.subtext)).child(self.status.clone()))
@@ -989,7 +989,7 @@ impl Render for SettingsView {
                     .bg(rgb(theme.surface))
                     .border_b_1()
                     .border_color(rgb(theme.border))
-                    .child(div().text_lg().child("Global Settings"))
+                    .child(div().text_lg().child(crate::i18n::tr("Global Settings")))
                     .child(
                         div()
                             .id("save-settings")
@@ -999,7 +999,7 @@ impl Render for SettingsView {
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child("Save")
+                            .child(crate::i18n::tr("Save"))
                             .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
                     )
                     .child(
@@ -1363,7 +1363,7 @@ impl Render for InstanceSettingsView {
                     .bg(rgb(theme.surface))
                     .border_b_1()
                     .border_color(rgb(theme.border))
-                    .child(div().text_lg().child("Instance Settings"))
+                    .child(div().text_lg().child(crate::i18n::tr("Instance Settings")))
                     .child(
                         div()
                             .id("save-instance-settings")
@@ -1373,7 +1373,7 @@ impl Render for InstanceSettingsView {
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child("Save")
+                            .child(crate::i18n::tr("Save"))
                             .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
                     )
                     .child(
@@ -1595,7 +1595,7 @@ impl Render for NewsView {
                     .bg(rgb(theme.surface))
                     .border_b_1()
                     .border_color(rgb(theme.border))
-                    .child("News")
+                    .child(crate::i18n::tr("News"))
                     .child(
                         div()
                             .ml_auto()
@@ -2228,7 +2228,7 @@ impl Render for SkinView {
                     .bg(rgb(theme.accent))
                     .text_color(rgb(theme.on_accent))
                     .cursor_pointer()
-                    .child("Upload skin…")
+                    .child(crate::i18n::tr("Upload skin…"))
                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                         this.upload_skin(cx);
                     })),
@@ -2290,7 +2290,7 @@ impl Render for SkinView {
                     .border_1()
                     .border_color(rgb(theme.border))
                     .cursor_pointer()
-                    .child("Add to library…")
+                    .child(crate::i18n::tr("Add to library…"))
                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                         this.install_local_skin(cx);
                     })),
@@ -2305,7 +2305,7 @@ impl Render for SkinView {
                     .border_1()
                     .border_color(rgb(theme.border))
                     .cursor_pointer()
-                    .child("Refresh")
+                    .child(crate::i18n::tr("Refresh"))
                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                         this.load_mojang_skins(cx);
                     })),
@@ -2364,7 +2364,7 @@ impl Render for SkinView {
                                 .bg(rgb(theme.surface))
                                 .border_1()
                                 .border_color(rgb(theme.border))
-                                .child("Use")
+                                .child(crate::i18n::tr("Use"))
                                 .on_click(move |_, _, cx| {
                                     e.update(cx, |this, cx| this.activate_skin(id.clone(), cx));
                                 }),
@@ -2413,7 +2413,7 @@ impl Render for SkinView {
                                 .bg(rgb(theme.surface))
                                 .border_1()
                                 .border_color(rgb(theme.border))
-                                .child("Upload")
+                                .child(crate::i18n::tr("Upload"))
                                 .on_click(move |_, _, cx| {
                                     let p = path.clone();
                                     e.update(cx, |this, cx| this.upload_local_skin(p, cx));
@@ -2668,7 +2668,7 @@ impl Render for AccountsView {
                                     .bg(rgb(theme.surface))
                                     .border_1()
                                     .border_color(rgb(theme.border))
-                                    .child("Use")
+                                    .child(crate::i18n::tr("Use"))
                                     .on_click(move |_, _, cx| {
                                         let u = uuid_use.clone();
                                         e_use.update(cx, |this, cx| this.activate(u, cx));
@@ -2687,7 +2687,7 @@ impl Render for AccountsView {
                                     .bg(rgb(theme.surface))
                                     .border_1()
                                     .border_color(rgb(theme.border))
-                                    .child("Remove")
+                                    .child(crate::i18n::tr("Remove"))
                                     .on_click(move |_, _, cx| {
                                         let u = uuid_remove.clone();
                                         e_remove.update(cx, |this, cx| this.remove(u, cx));
@@ -2714,7 +2714,7 @@ impl Render for AccountsView {
                     .bg(rgb(theme.surface))
                     .border_b_1()
                     .border_color(rgb(theme.border))
-                    .child(div().text_lg().child("Accounts"))
+                    .child(div().text_lg().child(crate::i18n::tr("Accounts")))
                     .child(
                         div()
                             .id("account-signin")
@@ -2724,7 +2724,7 @@ impl Render for AccountsView {
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child("Add Microsoft account")
+                            .child(crate::i18n::tr("Add Microsoft account"))
                             .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                                 this.sign_in(cx);
                             })),

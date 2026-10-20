@@ -359,7 +359,7 @@ impl Render for MainWindow {
             div()
                 .p_4()
                 .text_color(rgb(theme.subtext))
-                .child("No instances found. Drop a .mrpack or pack .zip here to import one.")
+                .child(crate::i18n::tr("No instances found. Drop a .mrpack or pack .zip here to import one."))
                 .into_any_element()
         } else {
             uniform_list(
@@ -457,7 +457,7 @@ impl Render for MainWindow {
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
-                            .child("New Instance")
+                            .child(crate::i18n::tr("New Instance"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 ui::open_new_instance(this.data_root.clone(), this.theme, cx);
                             })),
@@ -472,7 +472,7 @@ impl Render for MainWindow {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Settings")
+                            .child(crate::i18n::tr("Settings"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let settings = crate::settings::GlobalSettings::load(&this.data_root);
                                 ui::open_settings(settings, this.theme, cx);
@@ -488,7 +488,7 @@ impl Render for MainWindow {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("News")
+                            .child(crate::i18n::tr("News"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 ui::open_news(this.theme, cx);
                             })),
@@ -503,7 +503,7 @@ impl Render for MainWindow {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Accounts")
+                            .child(crate::i18n::tr("Accounts"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 ui::open_accounts(this.data_root.clone(), this.theme, cx);
                             })),
@@ -518,7 +518,7 @@ impl Render for MainWindow {
                             .border_1()
                             .border_color(rgb(theme.border))
                             .cursor_pointer()
-                            .child("Skin")
+                            .child(crate::i18n::tr("Skin"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let account = crate::accounts::AccountStore::load(&this.data_root)
                                     .active_account()
@@ -650,7 +650,7 @@ fn instance_row(
                 .bg(rgb(theme.accent))
                 .text_color(rgb(theme.on_accent))
                 .cursor_pointer()
-                .child("Launch")
+                .child(crate::i18n::tr("Launch"))
                 .on_click(move |_, _, cx| {
                     let row = launch_row.clone();
                     launch_entity.update(cx, |this, cx| this.launch(row, cx));
@@ -734,6 +734,16 @@ fn main() {
     }
     let settings = GlobalSettings::load(&root);
     crate::net::set_proxy(settings.proxy_url());
+    // Load the translation catalog for the configured language.
+    let lang = if settings.get_bool("UseSystemLocale") {
+        std::env::var("LANG")
+            .ok()
+            .and_then(|l| l.split('.').next().map(|s| s.replace('_', "-")))
+            .unwrap_or_else(|| settings.language().to_string())
+    } else {
+        settings.language().to_string()
+    };
+    crate::i18n::init(&root, &lang);
     // Load native plugins once; manifest plugins are read by the content
     // browser when it opens.
     let plugins = crate::plugin::PluginHost::discover(&root);
