@@ -30,6 +30,10 @@ struct HitRow {
 pub struct ModBrowser {
     input: Entity<TextInput>,
     hits: Vec<HitRow>,
+    /// The result whose description is shown on the right.
+    selected: Option<usize>,
+    /// Whether the filter panel on the left is shown.
+    filters_visible: bool,
     kind: ContentKind,
     platform: Platform,
     /// Content sources declared by installed manifest plugins.
@@ -68,6 +72,8 @@ impl ModBrowser {
         Self {
             input,
             hits: Vec::new(),
+            selected: None,
+            filters_visible: true,
             kind: ContentKind::Mod,
             platform: Platform::Modrinth,
             plugin_sources,
@@ -345,24 +351,39 @@ impl Render for ModBrowser {
             ContentKind::Shader,
         ];
 
-        let kind_tabs = kinds
+        // The filter panel on the left: the content kinds, the platforms and
+        // the content sources the plugins add.
+        let platforms = self.platforms();
+        let plugin_selected = self.plugin_selected;
+        let filters: Vec<AnyElement> = kinds
             .iter()
-            .enumerate()
-            .map(|(i, k)| {
+            .map(|k| {
                 let selected = *k == self.kind;
                 let k2 = *k;
                 div()
-                    .id(("kind", i))
+                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                        "filter-kind-{}",
+                        k2.label()
+                    ))))
                     .px_3()
                     .py_1()
-                    .rounded_md()
                     .cursor_pointer()
-                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.surface) })
-                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.text) })
-                    .child(k.label())
+                    .bg(if selected {
+                        rgb(theme.accent)
+                    } else {
+                        rgb(theme.base)
+                    })
+                    .text_color(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.text)
+                    })
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(div().text_sm().child(k2.label()))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.kind = k2;
                         this.hits.clear();
+                        this.selected = None;
                         let avail = this.platforms();
                         if !avail.is_empty() && !avail.contains(&this.platform) {
                             this.platform = avail[0];
@@ -371,70 +392,78 @@ impl Render for ModBrowser {
                     }))
                     .into_any_element()
             })
-            .collect::<Vec<_>>();
-
-        let platforms = self.platforms();
-        let plugin_selected = self.plugin_selected;
-        let platform_tabs = platforms
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
+            .chain(platforms.iter().map(|p| {
                 let selected = plugin_selected.is_none() && *p == self.platform;
                 let p2 = *p;
                 div()
-                    .id(("plat", i))
-                    .px_2()
+                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                        "filter-platform-{}",
+                        p2.label()
+                    ))))
+                    .px_3()
                     .py_1()
-                    .rounded_md()
                     .cursor_pointer()
-                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.background) })
-                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.subtext) })
-                    .child(p.label())
+                    .bg(if selected {
+                        rgb(theme.accent)
+                    } else {
+                        rgb(theme.base)
+                    })
+                    .text_color(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.text)
+                    })
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(div().text_sm().child(p2.label()))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.platform = p2;
                         this.plugin_selected = None;
                         this.hits.clear();
+                        this.selected = None;
                         this.status = format!("{} selected", p2.label()).into();
                         cx.notify();
                     }))
                     .into_any_element()
-            })
-            .collect::<Vec<_>>();
-
-        // Installed manifest plugins add their own content sources as extra
-        // tabs, indistinguishable from built-in platforms to the user.
-        let plugin_tabs = self
-            .plugin_sources
-            .iter()
-            .enumerate()
-            .map(|(i, (plugin, source))| {
+            }))
+            .chain(self.plugin_sources.iter().enumerate().map(|(i, (plugin, source))| {
                 let selected = plugin_selected == Some(i);
+                let name = source.name.clone();
+                let plugin = plugin.clone();
+                let source_name = name.clone();
                 div()
-                    .id(("plugin", i))
-                    .px_2()
+                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                        "filter-plugin-{name}"
+                    ))))
+                    .px_3()
                     .py_1()
-                    .rounded_md()
                     .cursor_pointer()
-                    .bg(if selected { rgb(theme.accent) } else { rgb(theme.background) })
-                    .text_color(if selected { rgb(theme.on_accent) } else { rgb(theme.subtext) })
-                    .child(format!("{} · {}", source.name, plugin))
+                    .bg(if selected {
+                        rgb(theme.accent)
+                    } else {
+                        rgb(theme.base)
+                    })
+                    .text_color(if selected {
+                        rgb(theme.on_accent)
+                    } else {
+                        rgb(theme.text)
+                    })
+                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .child(div().text_sm().child(name))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.plugin_selected = Some(i);
                         this.hits.clear();
-                        this.status = this
-                            .plugin_sources
-                            .get(i)
-                            .map(|(_, s)| format!("{} selected", s.name))
-                            .unwrap_or_else(|| "plugin selected".into())
-                            .into();
+                        this.selected = None;
+                        this.status =
+                            format!("{source_name} ({plugin}) selected").into();
                         cx.notify();
                     }))
                     .into_any_element()
-            })
-            .collect::<Vec<_>>();
+            }))
+            .collect();
 
         // Virtualised so a 10k-result search only lays out visible rows.
         let hits = self.hits.clone();
+        let selected = self.selected;
         let entity = cx.entity();
         let list: AnyElement = if hits.is_empty() {
             div()
@@ -447,13 +476,46 @@ impl Render for ModBrowser {
                 range
                     .filter_map(|i| {
                         let h = hits.get(i)?.clone();
-                        Some(hit_row(h, i, theme, entity.clone()))
+                        Some(hit_row(h, i, selected == Some(i), theme, entity.clone()))
                     })
                     .collect::<Vec<_>>()
             })
             .track_scroll(self.scroll.clone())
             .flex_1()
             .into_any_element()
+        };
+
+        // The description of the selected result, like Prism's description page.
+        let description: AnyElement = match self.selected.and_then(|i| self.hits.get(i)) {
+            Some(hit) => div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .p_4()
+                .child(div().text_lg().child(hit.title.clone()))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(theme.subtext))
+                        .child(format!("{} · {}", hit.platform.label(), hit.slug)),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(theme.subtext))
+                        .child(format!("{} downloads", compact(hit.downloads))),
+                )
+                .child(div().text_sm().child(hit.description.clone()))
+                .into_any_element(),
+            None => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(theme.subtext))
+                .child("Select an entry to see its description")
+                .into_any_element(),
         };
 
         let target = match (&self.game_version, &self.loader) {
@@ -468,114 +530,217 @@ impl Render for ModBrowser {
             .size_full()
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .bg(rgb(theme.surface))
-                    .border_b_1()
-                    .border_color(rgb(theme.border))
-                    .child(div().flex().gap_2().children(kind_tabs))
-                    .child(div().flex().flex_wrap().gap_2().children(platform_tabs))
-                    .child(div().flex().flex_wrap().gap_2().children(plugin_tabs))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .child(div().w(px(360.)).child(self.input.clone()))
-                            .child(
-                                div()
-                                    .id("search-btn")
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(rgb(theme.accent))
-                                    .text_color(rgb(theme.on_accent))
-                                    .cursor_pointer()
-                                    .child("Search")
-                                    .on_click(
-                                        cx.listener(|this: &mut Self, _, _, cx| this.search(cx)),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(theme.subtext))
-                                    .child(format!("target: {target}")),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(theme.subtext))
-                                    .child(self.status.clone()),
-                            ),
-                    ),
-            )
             .on_key_down(cx.listener(|this: &mut Self, ev: &KeyDownEvent, _window, cx| {
                 if ev.keystroke.key == "enter" {
                     this.search(cx);
                 }
             }))
-            .child(div().flex_1().flex().flex_col().overflow_hidden().child(list))
+            // The search bar on top, like Prism's resource page.
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .p_2()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .id("toggle-filters")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(if self.filters_visible {
+                                rgb(theme.accent)
+                            } else {
+                                rgb(theme.surface)
+                            })
+                            .text_color(if self.filters_visible {
+                                rgb(theme.on_accent)
+                            } else {
+                                rgb(theme.text)
+                            })
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child("Filters")
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                this.filters_visible = !this.filters_visible;
+                                cx.notify();
+                            })),
+                    )
+                    .child(div().flex_1().child(self.input.clone()))
+                    .child(
+                        div()
+                            .id("search-btn")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child("Search")
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.search(cx))),
+                    ),
+            )
+            // The filters, the results and the description.
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .flex()
+                    .overflow_hidden()
+                    .child(if self.filters_visible {
+                        div()
+                            .id("browser-filters")
+                            .w(px(200.))
+                            .flex_shrink_0()
+                            .flex()
+                            .flex_col()
+                            .py_1()
+                            .bg(rgb(theme.base))
+                            .border_r_1()
+                            .border_color(rgb(theme.border))
+                            .children(filters)
+                            .into_any_element()
+                    } else {
+                        div().into_any_element()
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .border_r_1()
+                            .border_color(rgb(theme.border))
+                            .child(list),
+                    )
+                    .child(
+                        div()
+                            .w(px(280.))
+                            .flex_shrink_0()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .child(description),
+                    ),
+            )
+            // The action row at the bottom, like Prism's resource page.
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .h(px(40.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_t_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(format!("target: {target}")),
+                    )
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    )
+                    .child(
+                        div()
+                            .id("install-selected")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child("Install")
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                let Some(index) = this.selected else {
+                                    this.status = "Select an entry first".into();
+                                    cx.notify();
+                                    return;
+                                };
+                                let Some(row) = this.hits.get(index).cloned() else {
+                                    return;
+                                };
+                                this.install(row, cx);
+                            })),
+                    ),
+            )
     }
 }
 
 /// One virtualised search result row.
-fn hit_row(h: HitRow, i: usize, theme: Theme, entity: Entity<ModBrowser>) -> AnyElement {
-    let h2 = h.clone();
+fn hit_row(
+    h: HitRow,
+    i: usize,
+    selected: bool,
+    theme: Theme,
+    entity: Entity<ModBrowser>,
+) -> AnyElement {
     div()
         .id(("hit", i))
         .flex()
-        .items_center()
-        .justify_between()
+        .flex_col()
+        .gap_1()
         .px_3()
         .py_2()
-        .border_b_1()
-        .border_color(rgb(theme.border))
+        .cursor_pointer()
+        .bg(if selected {
+            rgb(theme.accent)
+        } else {
+            rgb(theme.background)
+        })
+        .hover(|style| style.bg(rgb(theme.alternate)))
         .child(
             div()
                 .flex()
-                .flex_col()
-                .gap_1()
-                .max_w(px(520.))
+                .gap_2()
+                .items_center()
                 .child(
                     div()
-                        .flex()
-                        .gap_2()
-                        .items_center()
-                        .child(div().text_base().child(h.title.clone()))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(theme.subtext))
-                                .child(h.platform.label()),
-                        ),
+                        .text_base()
+                        .text_color(if selected {
+                            rgb(theme.on_accent)
+                        } else {
+                            rgb(theme.text)
+                        })
+                        .child(h.title.clone()),
                 )
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(theme.subtext))
-                        .child(format!("{} · {} dl", h.description, compact(h.downloads))),
+                        .text_color(if selected {
+                            rgb(theme.on_accent)
+                        } else {
+                            rgb(theme.subtext)
+                        })
+                        .child(h.platform.label()),
                 ),
         )
         .child(
             div()
-                .id(("install", i))
-                .px_3()
-                .py_1()
-                .rounded_md()
-                .bg(rgb(theme.accent))
-                .text_color(rgb(theme.on_accent))
-                .cursor_pointer()
-                .child("Install")
-                .on_click(move |_, _, cx| {
-                    let row = h2.clone();
-                    entity.update(cx, |this, cx| this.install(row, cx));
-                }),
+                .text_xs()
+                .text_color(if selected {
+                    rgb(theme.on_accent)
+                } else {
+                    rgb(theme.subtext)
+                })
+                .child(format!("{} · {} dl", h.description, compact(h.downloads))),
         )
+        .on_click(move |_, _, cx| {
+            entity.update(cx, |this, cx| {
+                this.selected = Some(i);
+                cx.notify();
+            });
+        })
         .into_any_element()
 }
 
@@ -585,7 +750,9 @@ pub fn open_mod_browser(
     theme: Theme,
     cx: &mut App,
 ) -> Option<gpui::WindowHandle<ModBrowser>> {
-    let bounds = Bounds::centered(None, size(px(860.), px(640.)), cx);
+    // The browse window needs room for the filters, the list and the
+    // description, like Prism's mod pages.
+    let bounds = Bounds::centered(None, size(px(1100.), px(700.)), cx);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
