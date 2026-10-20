@@ -75,6 +75,8 @@ struct MainWindow {
     search: Entity<crate::widgets::text_input::TextInput>,
     /// The current search text, refreshed from the search box on every frame.
     search_query: String,
+    /// The groups that are folded away.
+    collapsed: Vec<String>,
 }
 
 impl MainWindow {
@@ -102,6 +104,7 @@ impl MainWindow {
                 t
             }),
             search_query: String::new(),
+            collapsed: Vec::new(),
         };
         // Icons decode in the background so start-up stays instant.
         let dirs: Vec<PathBuf> = window.instances.iter().map(|r| r.dir.clone()).collect();
@@ -506,20 +509,25 @@ impl Render for MainWindow {
                     )
                 })
                 .collect();
+            // A folded group only shows its header.
+            let folded = self.collapsed.contains(&title);
             sections.push(
                 div()
                     .flex()
                     .flex_col()
                     .w_full()
-                    .child(group_header(&title, theme))
-                    .child(
+                    .child(group_header(&title, folded, theme, cx.entity()))
+                    .child(if folded {
+                        div().into_any_element()
+                    } else {
                         div()
                             .flex()
                             .flex_wrap()
                             .w_full()
                             .gap(px(crate::theme::metrics::GRID_SPACING))
-                            .children(tiles),
-                    )
+                            .children(tiles)
+                            .into_any_element()
+                    })
                     .into_any_element(),
             );
         }
@@ -1069,15 +1077,47 @@ fn tool_bar_separator(theme: Theme) -> AnyElement {
 }
 
 /// The header of a group of instances: bold text with a line underneath.
-fn group_header(title: &str, theme: Theme) -> AnyElement {
+fn group_header(
+    title: &str,
+    folded: bool,
+    theme: Theme,
+    entity: Entity<MainWindow>,
+) -> AnyElement {
+    let title = title.to_string();
     div()
-        .text_sm()
-        .font_weight(gpui::FontWeight::SEMIBOLD)
-        .text_color(rgb(theme.text))
+        .id(gpui::ElementId::Name(SharedString::from(format!(
+            "group-header-{title}"
+        ))))
+        .flex()
+        .items_center()
+        .gap_2()
+        .pb_1()
         .border_b_2()
         .border_color(rgb(theme.border))
-        .pb_1()
-        .child(title.to_string())
+        .cursor_pointer()
+        .child(
+            div()
+                .text_sm()
+                .text_color(rgb(theme.text))
+                .child(if folded { "▶" } else { "▼" }),
+        )
+        .child(
+            div()
+                .text_sm()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(rgb(theme.text))
+                .child(title.clone()),
+        )
+        .on_click(move |_, _, cx| {
+            entity.update(cx, |this, cx| {
+                if let Some(index) = this.collapsed.iter().position(|g| *g == title) {
+                    this.collapsed.remove(index);
+                } else {
+                    this.collapsed.push(title.clone());
+                }
+                cx.notify();
+            });
+        })
         .into_any_element()
 }
 
@@ -1112,7 +1152,15 @@ fn instance_tile(
             .w(px(crate::theme::metrics::TILE_ICON))
             .h(px(crate::theme::metrics::TILE_ICON))
             .rounded_md()
+            .border_2()
+            .border_color(rgb(theme.border))
             .bg(rgb(theme.alternate))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_lg()
+            .text_color(rgb(theme.subtext))
+            .child("?")
             .into_any_element(),
     };
 
