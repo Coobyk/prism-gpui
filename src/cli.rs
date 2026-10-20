@@ -701,8 +701,8 @@ pub fn run(args: &[String], data_root: &Path) -> Result<(), String> {
             Ok(())
         }
         Some("check-update") => {
-            let r = crate::updater::latest_release()?;
-            println!("latest Prism Launcher: {} ({})", r.tag_name, r.html_url);
+            let r = crate::updater::latest_self_release()?;
+            println!("latest release: {} ({})", r.tag_name, r.html_url);
             if let Some(a) = crate::updater::select_asset(&r) {
                 println!(
                     "asset for {}: {} ({} bytes)",

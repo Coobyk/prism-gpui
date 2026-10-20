@@ -53,10 +53,18 @@ pub fn latest_self_release() -> Result<Release, String> {
 }
 
 /// Fetch the latest release of a GitHub repository.
+///
+/// A repository without releases answers with a 404, which is not an error
+/// here: it simply means there is nothing to update to.
 pub fn latest_release_from(repo: &str) -> Result<Release, String> {
-    let body = crate::net::get_string(&format!(
-        "https://api.github.com/repos/{repo}/releases/latest"
-    ))?;
+    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+    let body = match crate::net::get_string(&url) {
+        Ok(body) => body,
+        Err(e) if e.contains("404") => {
+            return Err(format!("{repo} has no releases yet"));
+        }
+        Err(e) => return Err(e),
+    };
     serde_json::from_str(&body).map_err(|e| e.to_string())
 }
 

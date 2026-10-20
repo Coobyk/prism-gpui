@@ -37,7 +37,8 @@ use crate::settings::GlobalSettings;
 use crate::theme::Theme;
 use dirs::data_dir;
 use gpui::{
-    AnyElement, App, Application, Bounds, Context, Entity, ExternalPaths, FocusHandle,
+    AnyElement, AnyView, App, Application, Bounds, Context, Entity, ExternalPaths,
+    FocusHandle,
     KeyDownEvent, SharedString, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
 };
 use std::path::PathBuf;
@@ -51,6 +52,10 @@ struct InstanceRow {
     loader: String,
     group: Option<String>,
     icon: Option<Arc<gpui::Image>>,
+    /// When the instance was launched the last time, in milliseconds.
+    last_launched: u64,
+    /// How long the instance was played, in seconds.
+    time_played: u64,
 }
 
 struct MainWindow {
@@ -142,7 +147,7 @@ impl MainWindow {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { crate::updater::latest_release() })
+                .spawn(async move { crate::updater::latest_self_release() })
                 .await;
             this.update(cx, |this, cx| {
                 match result {
@@ -175,7 +180,8 @@ impl MainWindow {
 
     fn visible_rows(&self) -> Vec<InstanceRow> {
         let query = self.search_query.as_str();
-        self.instances
+        let mut rows: Vec<InstanceRow> = self
+            .instances
             .iter()
             .filter(|r| {
                 query.is_empty()
@@ -184,7 +190,13 @@ impl MainWindow {
                     || r.loader.to_lowercase().contains(&query)
             })
             .cloned()
-            .collect()
+            .collect();
+        let mode = crate::settings::GlobalSettings::load(&self.data_root)
+            .get("InstSortMode")
+            .unwrap_or("Name")
+            .to_string();
+        sort_instances(&mut rows, &mode);
+        rows
     }
 
     fn clamp_selection(&mut self) {
@@ -1012,6 +1024,25 @@ impl MainWindow {
     }
 }
 
+/// Sort the instances the way the `InstSortMode` setting says.
+///
+/// Prism offers "Name", "LastLaunch" and "Playtime".
+fn sort_instances(rows: &mut [InstanceRow], mode: &str) {
+    match mode {
+        "LastLaunch" => rows.sort_by(|a, b| {
+            b.last_launched
+                .cmp(&a.last_launched)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        }),
+        "Playtime" => rows.sort_by(|a, b| {
+            b.time_played
+                .cmp(&a.time_played)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        }),
+        _ => rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+    }
+}
+
 /// Group the instances the way Prism's instance view does: the ungrouped
 /// instances come first, the other groups follow in alphabetical order.
 fn group_instances(rows: &[InstanceRow]) -> Vec<(String, Vec<InstanceRow>)> {
@@ -1029,6 +1060,28 @@ fn group_instances(rows: &[InstanceRow]) -> Vec<(String, Vec<InstanceRow>)> {
         _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
     });
     groups
+}
+
+/// The tooltip of an instance tile: the instance folder and the play time.
+struct TooltipView {
+    text: String,
+    theme: Theme,
+}
+
+impl Render for TooltipView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .p_2()
+            .rounded_md()
+            .bg(rgb(theme.surface))
+            .border_1()
+            .border_color(rgb(theme.border))
+            .child(div().text_xs().child(self.text.clone()))
+    }
 }
 
 /// A separator between the groups of the tool bar.
@@ -1068,6 +1121,14 @@ fn instance_tile(
     let dir = row.dir.clone();
     let open_entity = entity.clone();
     let launch_row = row.clone();
+
+    // The tooltip shows the instance folder and how long it was played.
+    let mut tooltip = row.dir.display().to_string();
+    if row.time_played > 0 {
+        let hours = row.time_played / 3600;
+        let minutes = (row.time_played % 3600) / 60;
+        tooltip.push_str(&format!("\nplayed for {hours}h {minutes}m"));
+    }
 
     let icon: AnyElement = match row.icon.clone() {
         Some(image) => gpui::img(image)
@@ -1112,6 +1173,16 @@ fn instance_tile(
                 })
                 .child(name.clone()),
         )
+        .tooltip({
+            let tooltip = tooltip.clone();
+            move |_window: &mut Window, cx: &mut gpui::App| {
+                let view = cx.new(|_cx| TooltipView {
+                    text: tooltip.clone(),
+                    theme,
+                });
+                AnyView::from(view)
+            }
+        })
         .on_mouse_down(
             gpui::MouseButton::Left,
             move |event: &gpui::MouseDownEvent, _window: &mut Window, cx: &mut gpui::App| {
@@ -1191,6 +1262,16 @@ fn instance_rows(root: &PathBuf) -> Vec<InstanceRow> {
                 group,
                 // Decoded asynchronously after the window opens.
                 icon: None,
+                last_launched: inst
+                    .settings
+                    .get("lastLaunchTime")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
+                time_played: inst
+                    .settings
+                    .get("totalTimePlayed")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
             }
         })
         .collect()
@@ -1359,7 +1440,35 @@ mod layout_tests {
             loader: "vanilla".into(),
             group: group.map(|g| g.to_string()),
             icon: None,
+            last_launched: 0,
+            time_played: 0,
         }
+    }
+
+    #[test]
+    fn instances_are_sorted_the_way_prism_sorts_them() {
+        let mut rows = vec![
+            row("b", None),
+            row("a", None),
+            row("c", None),
+        ];
+        sort_instances(&mut rows, "Name");
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "b", "c"]);
+
+        // The most recently launched instance comes first.
+        rows[0].last_launched = 100;
+        rows[2].last_launched = 300;
+        sort_instances(&mut rows, "LastLaunch");
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["c", "a", "b"]);
+
+        // The instance played the longest comes first.
+        rows[0].time_played = 10;
+        rows[1].time_played = 50;
+        sort_instances(&mut rows, "Playtime");
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "c", "b"]);
     }
 
     #[test]

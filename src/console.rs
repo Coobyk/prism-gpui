@@ -55,6 +55,14 @@ impl ConsoleView {
                     Err(e) => push(&lines_bg, format!("pre-launch hook: {e}")),
                 }
             }
+            // The instance directory sits next to the game directory.
+            let instance_dir = profile
+                .game_dir
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| profile.game_dir.clone());
+            let started = std::time::Instant::now();
+            crate::launch::record_launch_start(&instance_dir);
             let mut cmd = profile.jvm_command();
             match cmd.spawn() {
                 Ok(mut child) => {
@@ -95,6 +103,8 @@ impl ConsoleView {
                     push(&lines_bg, format!("Failed to start: {e}"));
                 }
             }
+            // Record how long the instance was played.
+            crate::launch::record_playtime(&instance_dir, started.elapsed().as_secs());
             if !profile.post_exit.trim().is_empty() {
                 push(&lines_bg, format!("$ {}", profile.post_exit));
                 if let Err(e) = crate::launch::run_hook(&profile.post_exit, &profile.game_dir) {

@@ -63,7 +63,7 @@ pub const SETTINGS: &[SettingDef] = &[
     SettingDef { key: "StatusBarVisible", section: "General", default: "true", kind: ValueKind::Bool, label: "Show status bar", page: "Appearance" },
     SettingDef { key: "MenuBarInsteadOfToolBar", section: "General", default: "false", kind: ValueKind::Bool, label: "Menu bar instead of tool bar", page: "Appearance" },
     SettingDef { key: "ToolbarsLocked", section: "General", default: "false", kind: ValueKind::Bool, label: "Lock toolbars", page: "Appearance" },
-    SettingDef { key: "InstSortMode", section: "General", default: "Name", kind: ValueKind::Enum(&["Name", "LastLaunchTime", "CreationDate"]), label: "Sort instances by", page: "General" },
+    SettingDef { key: "InstSortMode", section: "General", default: "Name", kind: ValueKind::Enum(&["Name", "LastLaunch", "Playtime"]), label: "Sort instances by", page: "General" },
     SettingDef { key: "EditInstanceOnDoubleClick", section: "General", default: "false", kind: ValueKind::Bool, label: "Edit instance on double-click", page: "Appearance" },
     SettingDef { key: "ShowGameTime", section: "General", default: "true", kind: ValueKind::Bool, label: "Show game time", page: "Appearance" },
     SettingDef { key: "ShowGameTimeWithoutDays", section: "General", default: "false", kind: ValueKind::Bool, label: "Show game time without days", page: "Appearance" },

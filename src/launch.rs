@@ -186,6 +186,53 @@ pub fn build_profile(
     build_profile_with_account(inst_dir, data_root, java_path, None)
 }
 
+/// Record that an instance was started.
+///
+/// Prism writes the start time into the instance's settings so it can show
+/// when the instance was last played and sort the list by it.
+pub fn record_launch_start(instance_dir: &Path) {
+    let mut inst = match crate::instance::Instance::load(instance_dir) {
+        Some(i) => i,
+        None => return,
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    inst.set("lastLaunchTime", &now.to_string());
+    let _ = inst.save();
+}
+
+/// Record how long an instance was played.
+pub fn record_playtime(instance_dir: &Path, seconds: u64) {
+    let mut inst = match crate::instance::Instance::load(instance_dir) {
+        Some(i) => i,
+        None => return,
+    };
+    let total: u64 = inst
+        .settings
+        .get("totalTimePlayed")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    inst.set("totalTimePlayed", &(total + seconds).to_string());
+    inst.set("lastTimePlayed", &seconds.to_string());
+    let _ = inst.save();
+}
+
+/// The time an instance was played, in seconds.
+pub fn total_time_played(instance_dir: &Path) -> u64 {
+    crate::instance::Instance::load(instance_dir)
+        .and_then(|i| i.settings.get("totalTimePlayed").and_then(|v| v.parse().ok()))
+        .unwrap_or(0)
+}
+
+/// When an instance was launched the last time, in milliseconds.
+pub fn last_launch_time(instance_dir: &Path) -> u64 {
+    crate::instance::Instance::load(instance_dir)
+        .and_then(|i| i.settings.get("lastLaunchTime").and_then(|v| v.parse().ok()))
+        .unwrap_or(0)
+}
+
 /// Split a `host:port` server address, defaulting to port 25565.
 fn split_server_address(address: &str) -> (String, u16) {
     match address.rsplit_once(':') {
