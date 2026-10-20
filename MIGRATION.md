@@ -142,7 +142,7 @@ instance directory format.
 
 ## 8. Implementation status
 
-The `prism-gpui` binary implements the following today (105 unit tests green;
+The `prism-gpui` binary implements the following today (110 unit tests green;
 `cargo test` passes on the instabox build box as well).
 
 ### Data / core
@@ -202,29 +202,50 @@ The `prism-gpui` binary implements the following today (105 unit tests green;
   instance names and component metadata.
 
 ### UI (GPUI)
-- Main window: virtualised instance list, group sidebar/filter, search box,
-  keyboard navigation (↑/↓ select, Enter launch, O open, B browse, N new,
-  S settings), background icon decoding, drag-and-drop pack import.
-- Instance window: tabs (Mods, Resource Packs, Shaders, Data Packs, Texture
-  Packs, Worlds, Screenshots, Logs, Crash Reports, Notes, Version), launch,
-  browse content, open folder, export, duplicate, delete (two-step), per-tab
-  file actions (enable/disable mods, open screenshots/logs), keyboard
-  navigation. The notes are edited in place and stored in the instance's
-  `notes` setting; the Version tab lists the components.
-- Content browser: search across mods / modpacks / resource packs / shaders on
-  every usable platform plus plugin content sources, with install (modpacks
-  become new instances); Enter runs the search. A platform that needs an API
-  key only gets a tab when that key is configured.
-- Console window streaming live launch output.
-- Settings window: every setting in the registry, grouped by page, virtualised
-  and scrollable, enum cycling, native path pickers, masked secrets.
-- New Instance, Instance Settings, Accounts, News, Screenshots, Servers and
-  Skin (skin manager) windows.
+The layout follows Prism's own: a menu bar, a tool bar, the instance grid and
+a tool bar on the right in the main window; a page list on the left with the
+page content on the right in the instance, settings and new-instance windows.
+The palette is Prism's own dark and bright theme.
+
+- Main window: menu bar (File, Edit, View, Folders, Accounts, Help) with the
+  same drop-down entries Prism registers, a tool bar (Add Instance, Folders,
+  Settings, Help, Update, Meow, Accounts), the instances as a grid of tiles
+  grouped into sections, a vertical tool bar on the right that acts on the
+  selected instance (Rename, Launch, Kill, Edit, Change Group, Folder, Export,
+  Copy, Delete, Create Shortcut), a news bar and a status bar. A single click
+  selects an instance, a double click runs it — or opens its window when
+  "Edit instance on double-click" is on, exactly like Prism.
+- Instance window: the pages Prism has (Minecraft Log, Version, Mods, Resource
+  Packs, Data Packs, Texture packs, Shader Packs, Notes, Worlds, Servers,
+  Screenshots, Settings, Other Logs) in a page list on the left, the page
+  title above the content and Help / Launch / Restart / Kill / Close at the
+  bottom. The notes are edited in place and stored in the instance's `notes`
+  setting; the Version page lists the components.
+- Settings window: the pages Prism has (General, Language, Appearance,
+  Minecraft, Java, Services, Tools, Proxy) with Help / OK / Cancel at the
+  bottom; enum cycling, native path pickers and masked secrets.
+- New instance dialog: the pages Prism has (Custom, Import, Modrinth,
+  CurseForge, FTB, ATLauncher, Technic); the platform pages search for
+  modpacks and install them as new instances.
+- Content browser: a Filters button and the search field on top, the filters
+  (content kinds, platforms, plugin sources) on the left, the results in the
+  middle, the description of the selected entry on the right and the target,
+  the status and the Install button at the bottom.
+- Accounts window: Microsoft sign-in, offline accounts, switch and remove.
+- Skin manager: the account's Mojang skins, upload (classic/slim), activate,
+  reset, and a local skin library.
+- Console window streaming live launch output, with a Copy and a Close
+  button.
 - Update check in the toolbar; `self-update --apply` downloads the release and
   replaces the binary (the old one is kept as `<name>.old`).
-- `theme.rs` — Catppuccin-based light/dark palettes; `widgets/text_input.rs` —
+- `--gui [instance <name>|settings|accounts|news|skin|browse|new]` opens the
+  launcher and one of the other windows right away.
+- `theme.rs` — Prism's own dark and bright palettes plus the layout metrics
+  (menu bar, tool bar, tile size, page list width); `widgets/text_input.rs` —
   reusable GPUI text field that follows the launcher theme and can mask
   secrets.
+- `menu.rs` — the menu bar and the drop-down menus, with the entries Prism
+  registers.
 - `i18n.rs` — translation catalog loaded from `<data>/translations/<lang>.json`
   (or next to the executable); the main and instance windows go through it.
 
