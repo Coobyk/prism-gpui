@@ -198,18 +198,22 @@ The `prism-gpui` binary implements the following today (99 unit tests green;
 - Main window: virtualised instance list, group sidebar/filter, search box,
   keyboard navigation (↑/↓ select, Enter launch, O open, B browse, N new,
   S settings), background icon decoding, drag-and-drop pack import.
-- Instance window: tabs (Mods, Resource Packs, Shaders, Worlds, Screenshots,
-  Logs, Crash Reports), launch, browse content, open folder, export, duplicate,
-  delete (two-step), per-tab file actions (enable/disable mods, open
-  screenshots/logs), keyboard navigation.
+- Instance window: tabs (Mods, Resource Packs, Shaders, Data Packs, Texture
+  Packs, Worlds, Screenshots, Logs, Crash Reports, Notes, Version), launch,
+  browse content, open folder, export, duplicate, delete (two-step), per-tab
+  file actions (enable/disable mods, open screenshots/logs), keyboard
+  navigation. The notes are edited in place and stored in the instance's
+  `notes` setting; the Version tab lists the components.
 - Content browser: search across mods / modpacks / resource packs / shaders on
   every platform plus plugin content sources, with install (modpacks become new
   instances); Enter runs the search.
 - Console window streaming live launch output.
 - Settings window: every setting in the registry, grouped by page, virtualised
   and scrollable, enum cycling, native path pickers, masked secrets.
-- New Instance, Instance Settings, News, Screenshots, Servers and Skin
-  (skin manager) windows.
+- New Instance, Instance Settings, Accounts, News, Screenshots, Servers and
+  Skin (skin manager) windows.
+- Update check in the toolbar; `self-update --apply` downloads the release and
+  replaces the binary (the old one is kept as `<name>.old`).
 - `theme.rs` — Catppuccin-based light/dark palettes; `widgets/text_input.rs` —
   reusable GPUI text field that follows the launcher theme and can mask
   secrets.
@@ -240,3 +244,6 @@ absent).
 - In-app pixel-level skin painting (upload/activate/reset are done).
 - CurseForge downloads need `CF_API_KEY`; the other platforms are wired into
   the CLI and the content browser.
+- OptiFine is not part of Prism's meta index, so it would need a direct
+  optifine.net client.
+- No installer/packaging pipeline (AppImage, .msi, .dmg) and no code signing.
