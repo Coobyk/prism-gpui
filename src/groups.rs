@@ -91,6 +91,59 @@ impl GroupStore {
     }
 
     /// Assign an instance to a group (removing it from any previous group).
+    /// The names of the groups, in alphabetical order.
+    pub fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.groups.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Create a group; returns the name it was created with.
+    pub fn create_group(&mut self, name: &str) -> String {
+        let name = name.trim();
+        if name.is_empty() {
+            return String::new();
+        }
+        let mut candidate = name.to_string();
+        let mut counter = 2;
+        while self.groups.contains_key(&candidate) {
+            candidate = format!("{name} {counter}");
+            counter += 1;
+        }
+        self.groups
+            .entry(candidate.clone())
+            .or_default();
+        candidate
+    }
+
+    /// Rename a group, keeping its instances.
+    pub fn rename_group(&mut self, from: &str, to: &str) -> Result<String, String> {
+        let to = to.trim();
+        if to.is_empty() {
+            return Err("the name must not be empty".into());
+        }
+        if from == to {
+            return Ok(to.to_string());
+        }
+        if self.groups.contains_key(to) {
+            return Err(format!("the group {to} already exists"));
+        }
+        let group = self
+            .groups
+            .remove(from)
+            .ok_or_else(|| format!("no group named {from}"))?;
+        self.groups.insert(to.to_string(), group);
+        Ok(to.to_string())
+    }
+
+    /// Delete a group; its instances become ungrouped.
+    pub fn delete_group(&mut self, name: &str) -> Result<(), String> {
+        self.groups
+            .remove(name)
+            .map(|_| ())
+            .ok_or_else(|| format!("no group named {name}"))
+    }
+
     pub fn set_group(&mut self, instance_id: &str, group: Option<&str>) {
         for g in self.groups.values_mut() {
             g.instances.retain(|i| i != instance_id);

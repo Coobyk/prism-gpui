@@ -168,7 +168,9 @@ impl InstanceView {
             Tab::Screenshots | Tab::Logs | Tab::CrashReports => {
                 let _ = crate::desktop::open_path(&self.current_dir().join(&entry));
             }
-            Tab::Mods if !entry.ends_with('/') => {
+            Tab::Mods | Tab::ResourcePacks | Tab::ShaderPacks | Tab::DataPacks
+                if !entry.ends_with('/') =>
+            {
                 self.toggle_mod(&entry);
                 cx.notify();
             }
@@ -176,6 +178,10 @@ impl InstanceView {
         }
     }
 
+    /// Enable or disable a mod, resource pack, shader or data pack.
+    ///
+    /// Minecraft skips the files that end in `.disabled`, which is how Prism
+    /// disables them too.
     fn toggle_mod(&mut self, file: &str) {
         let dir = self.current_dir().join(file);
         let target = if file.ends_with(".disabled") {
@@ -184,7 +190,52 @@ impl InstanceView {
             dir.with_file_name(format!("{file}.disabled"))
         };
         let _ = std::fs::rename(&dir, &target);
+        // The first enabled resource pack and shader become the active ones.
+        if matches!(self.tab, Tab::ResourcePacks | Tab::ShaderPacks) {
+            self.update_active_pack();
+        }
         self.refresh();
+    }
+
+    /// Write the active resource pack and shader into `options.txt`.
+    ///
+    /// Minecraft reads `resourcePacks:` and `shaderPack:` from the game
+    /// directory, so the first enabled pack of each kind is used.
+    fn update_active_pack(&mut self) {
+        let options = self.dir.join("minecraft").join("options.txt");
+        let Ok(text) = std::fs::read_to_string(&options) else {
+            return;
+        };
+        let resource_pack = self
+            .first_enabled("resourcepacks")
+            .map(|n| format!("resourcePacks:[\"{n}\"]"))
+            .unwrap_or_else(|| "resourcePacks:[]".to_string());
+        let shader = self
+            .first_enabled("shaderpacks")
+            .map(|n| format!("shaderPack:\"{n}\""))
+            .unwrap_or_else(|| "shaderPack:\"\"".to_string());
+        let mut lines: Vec<String> = text
+            .lines()
+            .filter(|l| !l.starts_with("resourcePacks:") && !l.starts_with("shaderPack:"))
+            .map(|l| l.to_string())
+            .collect();
+        lines.push(resource_pack);
+        lines.push(shader);
+        let _ = std::fs::write(&options, lines.join("
+") + "
+");
+    }
+
+    /// The first file in a folder that is not disabled.
+    fn first_enabled(&self, folder: &str) -> Option<String> {
+        let mut names: Vec<String> = std::fs::read_dir(self.dir.join("minecraft").join(folder))
+            .ok()?
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| !n.ends_with(".disabled"))
+            .collect();
+        names.sort();
+        names.into_iter().next()
     }
 
     fn current_dir(&self) -> PathBuf {
@@ -3349,6 +3400,401 @@ pub fn open_skin(
                     theme,
                     data_root.clone(),
                     access_token.clone(),
+                    cx,
+                )
+            })
+        },
+    )
+    .ok()
+}
+
+// ---- Group window ----
+
+/// Manage the instance groups, like Prism's group dialog.
+pub struct GroupView {
+    data_root: PathBuf,
+    /// The instance the dialog was opened for.
+    instance: String,
+    /// The groups and their members.
+    groups: Vec<(String, Vec<String>)>,
+    /// The group the instance is in.
+    current: Option<String>,
+    /// The name of the group that is being renamed.
+    renaming: Option<String>,
+    name_input: Entity<TextInput>,
+    status: SharedString,
+    theme: Theme,
+}
+
+impl GroupView {
+    pub fn new(
+        data_root: PathBuf,
+        instance: String,
+        current: Option<String>,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let name_input = cx.new(|cx| {
+            let mut t = TextInput::new("Group name", cx);
+            t.set_theme(theme, cx);
+            t
+        });
+        let mut view = Self {
+            data_root,
+            instance,
+            groups: Vec::new(),
+            current,
+            renaming: None,
+            name_input,
+            status: "Ready".into(),
+            theme,
+        };
+        view.reload();
+        view
+    }
+
+    fn reload(&mut self) {
+        let store = crate::groups::GroupStore::load(&self.data_root);
+        self.groups = store
+            .groups
+            .iter()
+            .map(|(name, group)| (name.clone(), group.instances.clone()))
+            .collect();
+    }
+
+    /// Move the instance into a group.
+    fn assign(&mut self, group: Option<String>, cx: &mut Context<Self>) {
+        let mut store = crate::groups::GroupStore::load(&self.data_root);
+        store.set_group(&self.instance_name(), group.as_deref());
+        let _ = store.save(&self.data_root);
+        self.current = group;
+        self.status = "The instance was moved".into();
+        cx.notify();
+    }
+
+    /// The instance the dialog was opened for.
+    fn instance_name(&self) -> String {
+        self.instance.clone()
+    }
+
+    /// Create a group with the name of the input field.
+    fn create(&mut self, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).text().trim().to_string();
+        if name.is_empty() {
+            self.status = "The name must not be empty".into();
+            cx.notify();
+            return;
+        }
+        let mut store = crate::groups::GroupStore::load(&self.data_root);
+        let created = store.create_group(&name);
+        let _ = store.save(&self.data_root);
+        self.name_input.update(cx, |t, cx| t.set_text("", cx));
+        self.reload();
+        self.status = format!("Created the group {created}").into();
+        cx.notify();
+    }
+
+    /// Rename the group that is being renamed.
+    fn rename(&mut self, cx: &mut Context<Self>) {
+        let Some(from) = self.renaming.clone() else {
+            return;
+        };
+        let name = self.name_input.read(cx).text().trim().to_string();
+        if name.is_empty() {
+            self.status = "The name must not be empty".into();
+            cx.notify();
+            return;
+        }
+        let mut store = crate::groups::GroupStore::load(&self.data_root);
+        match store.rename_group(&from, &name) {
+            Ok(newname) => {
+                let _ = store.save(&self.data_root);
+                if self.current.as_deref() == Some(from.as_str()) {
+                    self.current = Some(newname.clone());
+                }
+                self.renaming = None;
+                self.name_input.update(cx, |t, cx| t.set_text("", cx));
+                self.reload();
+                self.status = format!("Renamed the group to {newname}").into();
+            }
+            Err(e) => self.status = format!("Rename failed: {e}").into(),
+        }
+        cx.notify();
+    }
+
+    /// Delete a group; its instances become ungrouped.
+    fn delete(&mut self, name: &str, cx: &mut Context<Self>) {
+        let mut store = crate::groups::GroupStore::load(&self.data_root);
+        match store.delete_group(name) {
+            Ok(()) => {
+                let _ = store.save(&self.data_root);
+                if self.current.as_deref() == Some(name) {
+                    self.current = None;
+                }
+                self.reload();
+                self.status = format!("Deleted the group {name}").into();
+            }
+            Err(e) => self.status = format!("Delete failed: {e}").into(),
+        }
+        cx.notify();
+    }
+}
+
+impl Render for GroupView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let current = self.current.clone();
+        let rows: Vec<AnyElement> = self
+            .groups
+            .iter()
+            .map(|(name, members)| {
+                let is_current = current.as_deref() == Some(name.as_str());
+                let name = name.clone();
+                let name_use = name.clone();
+                let name_rename = name.clone();
+                let name_delete = name.clone();
+                let entity = cx.entity();
+                let entity_use = entity.clone();
+                let entity_rename = entity.clone();
+                let entity_delete = entity.clone();
+                div()
+                    .id(gpui::ElementId::Name(SharedString::from(format!("group-{name}"))))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_base().child(name.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(theme.subtext))
+                                    .child(format!("{} instances", members.len())),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                                        "group-use-{name_use}"
+                                    ))))
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(if is_current {
+                                        rgb(theme.accent)
+                                    } else {
+                                        rgb(theme.surface)
+                                    })
+                                    .text_color(if is_current {
+                                        rgb(theme.on_accent)
+                                    } else {
+                                        rgb(theme.text)
+                                    })
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child(if is_current { "Current" } else { "Use" })
+                                    .on_click(move |_, _, cx| {
+                                        let name = name_use.clone();
+                                        entity_use.update(cx, |this, cx| {
+                                            this.assign(Some(name), cx)
+                                        });
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                                        "group-rename-{name_rename}"
+                                    ))))
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child("Rename")
+                                    .on_click(move |_, _, cx| {
+                                        let name = name_rename.clone();
+                                        entity_rename.update(cx, |this, cx| {
+                                            this.renaming = Some(name.clone());
+                                            this.name_input.update(cx, |t, cx| {
+                                                t.set_text(name, cx)
+                                            });
+                                            cx.notify();
+                                        });
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                                        "group-delete-{name_delete}"
+                                    ))))
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .bg(rgb(theme.surface))
+                                    .border_1()
+                                    .border_color(rgb(theme.border))
+                                    .child("Delete")
+                                    .on_click(move |_, _, cx| {
+                                        let name = name_delete.clone();
+                                        entity_delete.update(cx, |this, cx| {
+                                            this.delete(&name, cx)
+                                        });
+                                    }),
+                            ),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .h(px(40.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(crate::i18n::tr("Change Group")),
+                    )
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_sm()
+                            .text_color(rgb(theme.subtext))
+                            .child(self.status.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .children(rows),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .h(px(40.0))
+                    .px_4()
+                    .bg(rgb(theme.surface))
+                    .border_t_1()
+                    .border_color(rgb(theme.border))
+                    .child(div().w(px(240.)).child(self.name_input.clone()))
+                    .child(
+                        div()
+                            .id("group-create")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child(crate::i18n::tr("Create"))
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.create(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("group-rename")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Rename"))
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.rename(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("group-none")
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("No group"))
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                this.assign(None, cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("group-close")
+                            .ml_auto()
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Close"))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.quit();
+                            })),
+                    ),
+            )
+    }
+}
+
+/// Open the group dialog for an instance.
+pub fn open_groups(
+    data_root: PathBuf,
+    instance: String,
+    current: Option<String>,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<GroupView>> {
+    let bounds = Bounds::centered(None, size(px(520.), px(460.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Change Group — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| {
+            cx.new(|cx| {
+                GroupView::new(
+                    data_root.clone(),
+                    instance.clone(),
+                    current.clone(),
+                    theme,
                     cx,
                 )
             })
