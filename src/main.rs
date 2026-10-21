@@ -83,6 +83,9 @@ struct MainWindow {
     search_query: String,
     /// The groups that are folded away.
     collapsed: Vec<String>,
+    /// Open the file menu after the window is up. This is a help for looking
+    /// at the menus without a mouse; set `PRISM_DEBUG_MENU` to use it.
+    open_test_menu: bool,
 }
 
 impl MainWindow {
@@ -111,6 +114,7 @@ impl MainWindow {
             }),
             search_query: String::new(),
             collapsed: Vec::new(),
+            open_test_menu: std::env::var("PRISM_DEBUG_MENU").is_ok(),
         };
         // Icons decode in the background so start-up stays instant.
         let dirs: Vec<PathBuf> = window.instances.iter().map(|r| r.dir.clone()).collect();
@@ -484,6 +488,29 @@ impl Render for MainWindow {
             self.auto_focused = true;
         }
         let theme = self.theme;
+
+        // The test hook opens the file menu once the window is up.
+        if self.open_test_menu {
+            self.open_test_menu = false;
+            let theme = self.theme;
+            cx.spawn(async move |this, cx| {
+                gpui::Timer::after(std::time::Duration::from_secs(2)).await;
+                let Some(entity) = this.upgrade() else {
+                    return;
+                };
+                crate::menu::open_menu_with(
+                    "File",
+                    crate::menu::FILE_MENU,
+                    entity,
+                    true,
+                    theme,
+                    gpui::Point::new(px(4.), px(30.)),
+                    gpui::Bounds::new(gpui::Point::new(px(0.), px(0.)), gpui::size(px(0.), px(0.))),
+                    cx,
+                );
+            })
+            .detach();
+        }
 
         // Prism shows the instances as a grid of tiles, grouped into
         // sections; the ungrouped instances come first.

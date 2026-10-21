@@ -307,6 +307,33 @@ impl Render for MenuView {
     }
 }
 
+/// The window of a drop-down, at the place the menu was opened.
+fn menu_window(
+    title: &'static str,
+    items: &'static [MenuItem],
+    main: Entity<crate::MainWindow>,
+    has_instance: bool,
+    theme: Theme,
+    position: gpui::Point<gpui::Pixels>,
+    window_bounds: Bounds<gpui::Pixels>,
+) -> (
+    WindowOptions,
+    impl FnOnce(&mut Window, &mut App) -> Entity<MenuView>,
+) {
+    let view = MenuView::new(title.into(), items.to_vec(), main, has_instance, theme);
+    let (w, h) = view.window_size();
+    let x = window_bounds.origin.x + position.x;
+    let y = window_bounds.origin.y + position.y;
+    let bounds = Bounds::new(gpui::Point::new(x, y), gpui::size(px(w), px(h)));
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        kind: WindowKind::PopUp,
+        focus: false,
+        ..Default::default()
+    };
+    (options, move |_, cx| cx.new(|_cx| view))
+}
+
 /// Open the drop-down of a menu under the given position.
 #[allow(clippy::too_many_arguments)]
 pub fn open_menu(
@@ -319,19 +346,38 @@ pub fn open_menu(
     window_bounds: Bounds<gpui::Pixels>,
     cx: &mut App,
 ) {
-    let view = MenuView::new(title.into(), items.to_vec(), main, has_instance, theme);
-    let (w, h) = view.window_size();
-    let x = window_bounds.origin.x + position.x;
-    let y = window_bounds.origin.y + position.y;
-    let bounds = Bounds::new(gpui::Point::new(x, y), gpui::size(px(w), px(h)));
-    cx.open_window(
-        WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            kind: WindowKind::PopUp,
-            focus: false,
-            ..Default::default()
-        },
-        move |_, cx| cx.new(|_cx| view),
-    )
-    .ok();
+    let (options, build) = menu_window(
+        title,
+        items,
+        main,
+        has_instance,
+        theme,
+        position,
+        window_bounds,
+    );
+    cx.open_window(options, build).ok();
+}
+
+/// The same, but for the asynchronous application.
+#[allow(clippy::too_many_arguments)]
+pub fn open_menu_with(
+    title: &'static str,
+    items: &'static [MenuItem],
+    main: Entity<crate::MainWindow>,
+    has_instance: bool,
+    theme: Theme,
+    position: gpui::Point<gpui::Pixels>,
+    window_bounds: Bounds<gpui::Pixels>,
+    cx: &mut gpui::AsyncApp,
+) {
+    let (options, build) = menu_window(
+        title,
+        items,
+        main,
+        has_instance,
+        theme,
+        position,
+        window_bounds,
+    );
+    cx.open_window(options, build).ok();
 }
