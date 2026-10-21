@@ -300,10 +300,20 @@ mod tests {
                     size: 999,
                     digest: None,
                 },
+                Asset {
+                    name: "PrismLauncher-9.0.0-macOS.tar.gz".into(),
+                    browser_download_url: "https://e/d".into(),
+                    size: 120,
+                    digest: None,
+                },
             ],
         };
         let picked = select_asset(&release).unwrap();
         assert!(picked.name.contains(platform_keyword()));
+        // The plain archive is preferred over the AppImage.
+        if platform_keyword() == "Linux" {
+            assert!(picked.name.ends_with(".tar.gz"));
+        }
     }
 
     #[test]
