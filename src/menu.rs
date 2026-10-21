@@ -195,6 +195,22 @@ pub fn menus() -> Vec<Menu> {
     ]
 }
 
+/// The entries of the context menu of an instance.
+///
+/// Prism reuses the file menu here, so the list is the same.
+pub const INSTANCE_MENU: &[MenuItem] = &[
+    item("Launch", MenuAction::Launch),
+    item("Kill", MenuAction::Kill),
+    item_sep("", MenuAction::Launch),
+    item("Edit...", MenuAction::Edit),
+    item("Change Group...", MenuAction::ChangeGroup),
+    item("Folder", MenuAction::ViewInstanceFolder),
+    item("Export...", MenuAction::Export),
+    item("Copy...", MenuAction::Copy),
+    item("Delete", MenuAction::Delete),
+    item("Create Shortcut", MenuAction::CreateShortcut),
+];
+
 /// The drop-down window that shows the entries of one menu.
 pub struct MenuView {
     title: SharedString,

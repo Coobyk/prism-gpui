@@ -1109,6 +1109,7 @@ fn instance_tile(
     let name = row.name.clone();
     let dir = row.dir.clone();
     let open_entity = entity.clone();
+    let menu_entity = entity.clone();
     let launch_row = row.clone();
 
     // The icon of the instance, or the placeholder Prism shows without one.
@@ -1160,6 +1161,25 @@ fn instance_tile(
         .child(icon)
         .child(div().h(px(5.0)))
         .child(band)
+        // A right click opens the context menu, like in Prism.
+        .on_mouse_down(
+            gpui::MouseButton::Right,
+            move |event: &gpui::MouseDownEvent, window: &mut Window, cx: &mut gpui::App| {
+                let bounds = window.bounds();
+                let position = event.position;
+                let menu_entity = menu_entity.clone();
+                crate::menu::open_menu(
+                    "Instance",
+                    crate::menu::INSTANCE_MENU,
+                    menu_entity,
+                    true,
+                    theme,
+                    position,
+                    bounds,
+                    cx,
+                );
+            },
+        )
         .on_mouse_down(
             gpui::MouseButton::Left,
             move |event: &gpui::MouseDownEvent, _window: &mut Window, cx: &mut gpui::App| {
