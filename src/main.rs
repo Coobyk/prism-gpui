@@ -238,7 +238,7 @@ impl MainWindow {
 
     fn open_selected(&mut self, cx: &mut Context<Self>) {
         if let Some(row) = self.visible_rows().get(self.selected).cloned() {
-            ui::open_instance(&row.name, &row.dir, &self.data_root, self.theme, cx);
+            ui::open_instance(&row.name, &row.dir, &self.data_root, self.theme, None, cx);
         }
     }
 
@@ -288,7 +288,7 @@ impl MainWindow {
         let Some(row) = self.selected_row() else {
             return;
         };
-        ui::open_instance(&row.name, &row.dir, &self.data_root, self.theme, cx);
+        ui::open_instance(&row.name, &row.dir, &self.data_root, self.theme, None, cx);
     }
 
     /// Move the selected instance to another group.
@@ -1219,7 +1219,14 @@ fn instance_tile(
                     open_entity.update(cx, move |main, cx| {
                         let settings = crate::settings::GlobalSettings::load(&main.data_root);
                         if settings.get_bool("EditInstanceOnDoubleClick") {
-                            ui::open_instance(&dir_name(&dir), &dir, &data_root, main.theme, cx);
+                            ui::open_instance(
+                                &dir_name(&dir),
+                                &dir,
+                                &data_root,
+                                main.theme,
+                                None,
+                                cx,
+                            );
                         } else {
                             main.launch(launch_row.clone(), cx);
                         }
@@ -1318,6 +1325,7 @@ fn main() {
     // window right away; anything else is a CLI command.
     let mut gui_window: Option<String> = None;
     let mut gui_argument: Option<String> = None;
+    let mut gui_page: Option<String> = None;
     if let Some(first) = args.first() {
         if first != "--gui" {
             if let Err(e) = cli::run(&args, &root) {
@@ -1328,6 +1336,7 @@ fn main() {
         }
         gui_window = args.get(1).cloned();
         gui_argument = args.get(2).cloned();
+        gui_page = args.get(3).cloned();
     }
     let settings = GlobalSettings::load(&root);
     crate::net::set_proxy(settings.proxy_url());
@@ -1360,6 +1369,7 @@ fn main() {
     let shared_root = Arc::new(root);
     let gui_window = gui_window.clone();
     let gui_argument = gui_argument.clone();
+    let gui_page = gui_page.clone();
     Application::new().run(move |cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(800.), px(600.)), cx);
         let rows = rows.clone();
@@ -1398,11 +1408,12 @@ fn main() {
             match which.as_str() {
                 "instance" => {
                     let Some(name) = argument else {
-                        eprintln!("usage: prism-gpui --gui instance <name>");
+                        eprintln!("usage: prism-gpui --gui instance <name> [page]");
                         return;
                     };
+                    let page = gui_page.clone();
                     if let Some(row) = instance_rows(&root).into_iter().find(|r| r.name == name) {
-                        ui::open_instance(&row.name, &row.dir, &root, theme, cx);
+                        ui::open_instance(&row.name, &row.dir, &root, theme, page.as_deref(), cx);
                     }
                 }
                 "settings" => {

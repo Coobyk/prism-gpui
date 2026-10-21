@@ -59,6 +59,21 @@ impl Tab {
             Tab::CrashReports => "Other Logs",
         })
     }
+    /// The page with that name, if there is one.
+    fn by_name(name: &str) -> Option<Tab> {
+        Tab::ALL
+            .iter()
+            .copied()
+            .find(|tab| tab.label().eq_ignore_ascii_case(name))
+    }
+
+    /// The pages that list files, which are shown as a table.
+    fn is_resources(&self) -> bool {
+        matches!(
+            self,
+            Tab::Mods | Tab::ResourcePacks | Tab::DataPacks | Tab::TexturePacks | Tab::ShaderPacks
+        )
+    }
     /// The icon Prism shows next to the page.
     fn icon(&self) -> &'static str {
         match self {
@@ -122,6 +137,12 @@ pub struct InstanceView {
     notes_input: Entity<TextInput>,
     /// The metadata of the selected mod.
     mod_info: Option<crate::modinfo::ModInfo>,
+    /// The rows of the resource table.
+    rows: Vec<ResourceEntry>,
+    /// The search field of the resource pages.
+    filter: Entity<TextInput>,
+    /// The text of the search field.
+    filter_query: String,
 }
 
 impl InstanceView {
@@ -130,6 +151,7 @@ impl InstanceView {
         dir: PathBuf,
         data_root: PathBuf,
         theme: Theme,
+        page: Option<&str>,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut v = Self {
@@ -153,7 +175,18 @@ impl InstanceView {
                 t
             }),
             mod_info: None,
+            rows: Vec::new(),
+            filter: cx.new(|cx| {
+                let mut t = TextInput::new("Search", cx);
+                t.set_theme(theme, cx);
+                t
+            }),
+            filter_query: String::new(),
         };
+        // The page to open on.
+        if let Some(page) = page {
+            v.tab = Tab::by_name(page).unwrap_or(v.tab);
+        }
         v.refresh();
         v
     }
@@ -203,6 +236,138 @@ impl InstanceView {
     }
 
     /// Read the metadata of the selected mod.
+    /// Enable or disable the selected entry.
+    fn toggle_resource(&mut self, file: &str, enabled: bool) {
+        let dir = self.current_dir();
+        let path = dir.join(file);
+        let target = if enabled {
+            // The file is disabled, so it is enabled again.
+            path.with_file_name(file.trim_end_matches(".disabled"))
+        } else {
+            path.with_file_name(format!("{file}.disabled"))
+        };
+        let _ = std::fs::rename(&path, &target);
+        self.load_rows();
+    }
+
+    /// Enable or disable every entry of the table.
+    fn set_resource_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let files: Vec<(String, bool)> = self
+            .rows
+            .iter()
+            .map(|row| (row.file.clone(), row.enabled))
+            .collect();
+        for (file, current) in files {
+            if current != enabled {
+                self.toggle_resource(&file, current);
+            }
+        }
+        self.load_rows();
+        cx.notify();
+    }
+
+    /// Remove the selected entry.
+    fn remove_resource(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self.rows.get(self.selected) else {
+            return;
+        };
+        let path = self.current_dir().join(&row.file);
+        let result = if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        self.status = match result {
+            Ok(()) => format!("Removed {}", row.file).into(),
+            Err(e) => format!("Could not remove the file: {e}").into(),
+        };
+        self.load_rows();
+        cx.notify();
+    }
+
+    /// Add a file to the folder of the page.
+    fn add_resource(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Select a mod or a pack".into()),
+        });
+        let dir = self.current_dir();
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.first().cloned() else {
+                return;
+            };
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let target = dir.join(&name);
+            let copied = std::fs::copy(&path, &target);
+            this.update(cx, |this, cx| {
+                this.status = match copied {
+                    Ok(_) => format!("Added {name}").into(),
+                    Err(e) => format!("Could not add the file: {e}").into(),
+                };
+                this.load_rows();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Read the rows of the resource table.
+    ///
+    /// The name and the version of a mod come from its descriptor, the rest
+    /// from the file itself.
+    fn load_rows(&mut self) {
+        let dir = self.current_dir();
+        let query = self.filter_query.clone();
+        let mut rows: Vec<ResourceEntry> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    continue;
+                }
+                let file = entry.file_name().to_string_lossy().to_string();
+                if !query.is_empty() && !file.to_lowercase().contains(&query) {
+                    continue;
+                }
+                let enabled = !file.ends_with(".disabled");
+                let info = crate::modinfo::read_mod_info(&path);
+                let meta = entry.metadata().ok();
+                let size = meta
+                    .as_ref()
+                    .map(|m| m.len())
+                    .map(format_size)
+                    .unwrap_or_default();
+                let modified = meta
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .map(format_time)
+                    .unwrap_or_default();
+                rows.push(ResourceEntry {
+                    name: info.as_ref().map(|i| i.name.clone()).unwrap_or_default(),
+                    version: info.as_ref().map(|i| i.version.clone()).unwrap_or_default(),
+                    description: info.as_ref().map(|i| i.id.clone()).unwrap_or_default(),
+                    author: info.as_ref().map(|i| i.author.clone()).unwrap_or_default(),
+                    file,
+                    enabled,
+                    modified,
+                    size,
+                });
+            }
+        }
+        rows.sort_by_key(|row| row.file.to_lowercase());
+        self.rows = rows;
+    }
+
     fn load_mod_info(&mut self) {
         self.mod_info = None;
         if self.tab != Tab::Mods {
@@ -510,6 +675,174 @@ impl InstanceView {
             .into_any_element()
     }
 
+    /// The resource pages: a table of the mods or packs, the description of
+    /// the selected entry, the search field and the actions.
+    fn render_resources(&mut self, theme: Theme, cx: &mut Context<Self>) -> gpui::Div {
+        // Keep the search text and the rows in sync.
+        self.filter_query = self.filter.read(cx).text().to_lowercase();
+        self.load_rows();
+
+        let rows = self.rows.clone();
+        let selected = self.selected;
+        let entity = cx.entity();
+        let list: AnyElement = if rows.is_empty() {
+            div()
+                .p_3()
+                .text_color(rgb(theme.subtext))
+                .child(crate::i18n::tr("(empty)"))
+                .into_any_element()
+        } else {
+            uniform_list("resource-rows", rows.len(), move |range, _window, _cx| {
+                range
+                    .filter_map(|i| {
+                        let row = rows.get(i)?.clone();
+                        Some(resource_row(&row, i, i == selected, theme, entity.clone()))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .track_scroll(self.scroll.clone())
+            .flex_1()
+            .into_any_element()
+        };
+
+        // The description of the selected entry, like Prism's info frame.
+        let description: AnyElement = match self.rows.get(self.selected) {
+            Some(row) if !row.name.is_empty() => div()
+                .flex_shrink_0()
+                .flex()
+                .gap_3()
+                .px_4()
+                .py_2()
+                .bg(rgb(theme.surface))
+                .border_t_1()
+                .border_color(rgb(theme.border))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(div().text_base().child(row.name.clone()))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(theme.subtext))
+                                .child(format!(
+                                    "{} · {} · {}",
+                                    row.version, row.description, row.author
+                                )),
+                        ),
+                )
+                .into_any_element(),
+            _ => div().into_any_element(),
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .flex_col()
+                    .overflow_hidden()
+                    .child(table_header(theme))
+                    .child(list)
+                    .child(description),
+            )
+            // The search field, at the bottom of the page.
+            .child(
+                div()
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .bg(rgb(theme.surface))
+                    .border_t_1()
+                    .border_color(rgb(theme.border))
+                    .child(div().flex_1().child(self.filter.clone()))
+                    .child(
+                        div()
+                            .id("resource-add")
+                            .px_3()
+                            .py_1()
+                            .rounded_sm()
+                            .bg(rgb(theme.accent))
+                            .text_color(rgb(theme.on_accent))
+                            .cursor_pointer()
+                            .child(crate::i18n::tr("Add File"))
+                            .on_click(
+                                cx.listener(|this: &mut Self, _, _, cx| this.add_resource(cx)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("resource-remove")
+                            .px_3()
+                            .py_1()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Remove"))
+                            .on_click(
+                                cx.listener(|this: &mut Self, _, _, cx| this.remove_resource(cx)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("resource-enable")
+                            .px_3()
+                            .py_1()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Enable"))
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                this.set_resource_enabled(true, cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("resource-disable")
+                            .px_3()
+                            .py_1()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("Disable"))
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
+                                this.set_resource_enabled(false, cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("resource-folder")
+                            .px_3()
+                            .py_1()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .bg(rgb(theme.surface))
+                            .border_1()
+                            .border_color(rgb(theme.border))
+                            .child(crate::i18n::tr("View Folder"))
+                            .on_click(cx.listener(|this: &mut Self, _, _, _cx| {
+                                let dir = this.current_dir();
+                                let _ = crate::desktop::open_path(&dir);
+                            })),
+                    ),
+            )
+    }
+
     /// The Servers page: the servers of the instance's `servers.dat`.
     fn render_servers(&mut self, theme: Theme, _cx: &mut Context<Self>) -> AnyElement {
         let servers = crate::servers::list_servers(&self.dir);
@@ -758,6 +1091,11 @@ impl Render for InstanceView {
                     .into_any_element()
             })
             .collect();
+
+        // The resource pages are tables, like in Prism.
+        if self.tab.is_resources() {
+            return self.render_resources(theme, cx);
+        }
 
         // The content of the selected page.
         let content: AnyElement = match self.tab {
@@ -1062,6 +1400,204 @@ impl Render for InstanceView {
     }
 }
 
+/// The size of a file, the way a file manager shows it.
+fn format_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit + 1 < UNITS.len() {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[unit])
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
+}
+
+/// The time a file was changed the last time.
+fn format_time(time: std::time::SystemTime) -> String {
+    let since = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let days = (since.as_secs() / 86_400) as i64;
+    // The civil date of a day count since the epoch.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// One row of the resource table.
+#[derive(Clone)]
+struct ResourceEntry {
+    /// The file name of the entry.
+    file: String,
+    /// Whether the entry is enabled (the file does not end in `.disabled`).
+    enabled: bool,
+    /// The name of the mod, when its descriptor could be read.
+    name: String,
+    /// The version of the mod.
+    version: String,
+    /// When the file was changed the last time.
+    modified: String,
+    /// The size of the file.
+    size: String,
+    /// The description of the mod.
+    description: String,
+    /// The author of the mod.
+    author: String,
+}
+
+/// The columns of the resource table.
+///
+/// The enable column has no title, the name column takes the rest of the
+/// width, like in Prism.
+const TABLE_COLUMNS: &[(&str, f32)] = &[
+    ("", 40.0),
+    ("Name", 0.0),
+    ("Version", 120.0),
+    ("Last Modified", 140.0),
+    ("Size", 90.0),
+    ("File Name", 200.0),
+];
+
+/// The header of the resource table.
+fn table_header(theme: Theme) -> AnyElement {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .h(px(24.0))
+        .bg(rgb(theme.alternate))
+        .border_b_1()
+        .border_color(rgb(theme.border))
+        .children(TABLE_COLUMNS.iter().map(|(title, width)| {
+            div()
+                .w(if *width > 0.0 { px(*width) } else { px(0.) })
+                .flex_1()
+                .px_2()
+                .text_sm()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(rgb(theme.text))
+                .child(crate::i18n::tr(title))
+        }))
+        .into_any_element()
+}
+
+/// One row of the resource table.
+fn resource_row(
+    entry: &ResourceEntry,
+    index: usize,
+    selected: bool,
+    theme: Theme,
+    entity: Entity<InstanceView>,
+) -> AnyElement {
+    let toggle_entity = entity.clone();
+    let file = entry.file.clone();
+    let enabled = entry.enabled;
+    let name = if entry.name.is_empty() {
+        entry.file.clone()
+    } else {
+        entry.name.clone()
+    };
+    div()
+        .id(gpui::ElementId::Name(SharedString::from(format!(
+            "res-{index}-{}",
+            entry.file
+        ))))
+        .flex()
+        .flex_shrink_0()
+        .h(px(24.0))
+        .items_center()
+        .bg(if selected {
+            rgb(theme.accent)
+        } else {
+            rgb(theme.base)
+        })
+        .text_color(if selected {
+            rgb(theme.on_accent)
+        } else {
+            rgb(theme.text)
+        })
+        // The check box that enables the entry.
+        .child(
+            div()
+                .w(px(TABLE_COLUMNS[0].1))
+                .px_2()
+                .flex()
+                .items_center()
+                .child(
+                    div()
+                        .id(gpui::ElementId::Name(SharedString::from(format!(
+                            "res-enable-{index}"
+                        ))))
+                        .cursor_pointer()
+                        .child(crate::ui::checkbox(enabled, theme))
+                        .on_click(move |_, _, cx| {
+                            toggle_entity.update(cx, |this, cx| {
+                                this.toggle_resource(&file, enabled);
+                                cx.notify();
+                            });
+                        }),
+                ),
+        )
+        // The name, with the icon of the mod.
+        .child(
+            div()
+                .w(px(TABLE_COLUMNS[1].1))
+                .flex_1()
+                .min_w(px(120.))
+                .px_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .overflow_hidden()
+                .child(div().text_sm().child(name)),
+        )
+        .child(
+            div()
+                .w(px(TABLE_COLUMNS[2].1))
+                .px_2()
+                .text_sm()
+                .child(entry.version.clone()),
+        )
+        .child(
+            div()
+                .w(px(TABLE_COLUMNS[3].1))
+                .px_2()
+                .text_sm()
+                .child(entry.modified.clone()),
+        )
+        .child(
+            div()
+                .w(px(TABLE_COLUMNS[4].1))
+                .px_2()
+                .text_sm()
+                .child(entry.size.clone()),
+        )
+        .child(
+            div()
+                .w(px(TABLE_COLUMNS[5].1))
+                .px_2()
+                .text_sm()
+                .text_color(if selected {
+                    rgb(theme.on_accent)
+                } else {
+                    rgb(theme.subtext)
+                })
+                .child(entry.file.clone()),
+        )
+        .into_any_element()
+}
+
 /// One virtualised instance-content row.
 fn entry_row(
     entry: String,
@@ -1135,6 +1671,7 @@ pub fn open_instance(
     dir: &Path,
     data_root: &Path,
     theme: Theme,
+    page: Option<&str>,
     cx: &mut App,
 ) -> Option<gpui::WindowHandle<InstanceView>> {
     let name = name.to_string();
@@ -1153,7 +1690,14 @@ pub fn open_instance(
             },
             |_, cx| {
                 cx.new(|cx| {
-                    InstanceView::new(name.clone(), dir.clone(), data_root.clone(), theme, cx)
+                    InstanceView::new(
+                        name.clone(),
+                        dir.clone(),
+                        data_root.clone(),
+                        theme,
+                        page,
+                        cx,
+                    )
                 })
             },
         )
