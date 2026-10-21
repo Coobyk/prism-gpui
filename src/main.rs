@@ -14,6 +14,7 @@ mod forge;
 mod fs;
 mod groups;
 mod i18n;
+mod icons;
 mod instance;
 mod java;
 mod launch;
@@ -490,6 +491,7 @@ impl Render for MainWindow {
         let groups = group_instances(&rows);
 
         let selected_name = rows.get(self.selected).map(|r| r.name.clone());
+        let news = cx.entity();
         let entity = cx.entity();
         let data_root = self.data_root.clone();
 
@@ -548,8 +550,9 @@ impl Render for MainWindow {
                 .id("instance-grid")
                 .flex()
                 .flex_col()
-                .gap_3()
+                .gap_2()
                 .p(px(crate::theme::metrics::GRID_MARGIN))
+                .bg(rgb(theme.base))
                 .children(sections)
                 .into_any_element()
         };
@@ -620,21 +623,16 @@ impl Render for MainWindow {
                     .bg(rgb(theme.surface))
                     .border_t_1()
                     .border_color(rgb(theme.border))
-                    .child(
-                        div()
-                            .id("more-news")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .child(crate::i18n::tr("More News..."))
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                    .child(ui::tool_button(
+                        "news",
+                        &crate::i18n::tr("More News..."),
+                        theme,
+                        move |_window, cx| {
+                            news.update(cx, |this, cx| {
                                 ui::open_news(this.theme, cx);
-                            })),
-                    ),
+                            });
+                        },
+                    )),
             )
             // ---- status bar ----------------------------------------------
             .child(
@@ -710,188 +708,148 @@ impl MainWindow {
 
     /// The tool bar: Add Instance, Folders, Settings, Help, Update, Meow and
     /// Accounts, in Prism's order.
-    fn tool_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn tool_bar(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let bounds = window.bounds();
         let entity = cx.entity();
-        let has_instance = self.visible_rows().get(self.selected).is_some();
+        let add = entity.clone();
+        let folders = entity.clone();
+        let settings = entity.clone();
+        let update = entity.clone();
+        let accounts = entity.clone();
         div()
             .flex()
+            .flex_shrink_0()
             .items_center()
-            .h(px(crate::theme::metrics::TOOLBAR_HEIGHT))
-            .px_2()
-            .gap_1()
+            .gap_0()
+            .h(px(30.0))
+            .px_1()
             .bg(rgb(theme.surface))
             .border_b_1()
             .border_color(rgb(theme.border))
-            .child(
-                div()
-                    .id("add-instance")
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(rgb(theme.accent))
-                    .text_color(rgb(theme.on_accent))
-                    .cursor_pointer()
-                    .child(crate::i18n::tr("Add Instance..."))
-                    .on_click(cx.listener(move |this, _, _, cx| {
+            .child(ui::tool_button(
+                "add",
+                &crate::i18n::tr("Add Instance..."),
+                theme,
+                move |_window, cx| {
+                    add.update(cx, |this, cx| {
                         ui::open_new_instance(this.data_root.clone(), this.theme, cx);
-                    })),
-            )
-            .child(tool_bar_separator(theme))
-            .child(
-                div()
-                    .id("folders")
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(crate::i18n::tr("Folders"))
-                    .on_click(
-                        move |event: &gpui::ClickEvent,
-                              _window: &mut Window,
-                              cx: &mut gpui::App| {
-                            crate::menu::open_menu(
-                                "Folders",
-                                crate::menu::FOLDERS_MENU,
-                                entity.clone(),
-                                has_instance,
-                                theme,
-                                event.position(),
-                                bounds,
-                                cx,
-                            );
-                        },
-                    ),
-            )
-            .child(
-                div()
-                    .id("settings")
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(crate::i18n::tr("Settings..."))
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    });
+                },
+            ))
+            .child(ui::tool_separator(theme))
+            .child(ui::tool_button(
+                "folder",
+                &crate::i18n::tr("Folders"),
+                theme,
+                move |_window, cx| {
+                    folders.update(cx, |this, cx| {
+                        ui::open_folders(this.data_root.clone(), this.theme, cx);
+                    });
+                },
+            ))
+            .child(ui::tool_button(
+                "settings",
+                &crate::i18n::tr("Settings..."),
+                theme,
+                move |_window, cx| {
+                    settings.update(cx, |this, cx| {
                         let settings = crate::settings::GlobalSettings::load(&this.data_root);
                         ui::open_settings(settings, this.data_root.clone(), this.theme, cx);
-                    })),
-            )
-            .child(
-                div()
-                    .id("help")
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(crate::i18n::tr("Help"))
-                    .on_click(cx.listener(move |_, _, _, _cx| {
-                        let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
-                    })),
-            )
-            .child(
-                div()
-                    .id("check-update")
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(crate::i18n::tr("Update..."))
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    });
+                },
+            ))
+            .child(ui::tool_button(
+                "help",
+                &crate::i18n::tr("Help"),
+                theme,
+                move |_window, _cx| {
+                    let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
+                },
+            ))
+            .child(ui::tool_button(
+                "update",
+                &crate::i18n::tr("Update..."),
+                theme,
+                move |_window, cx| {
+                    update.update(cx, |this, cx| {
                         this.check_for_updates(cx);
-                    })),
-            )
-            .child(tool_bar_separator(theme))
-            .child(
-                div()
-                    .id("meow")
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(crate::i18n::tr("Meow"))
-                    .on_click(cx.listener(move |_, _, _, _cx| {
-                        let _ = crate::desktop::open_url("https://prismlauncher.org/");
-                    })),
-            )
-            .child(
-                div()
-                    .id("accounts")
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(crate::i18n::tr("Accounts"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    });
+                },
+            ))
+            .child(ui::tool_separator(theme))
+            .child(ui::tool_button(
+                "meow",
+                &crate::i18n::tr("Meow"),
+                theme,
+                move |_window, _cx| {
+                    let _ = crate::desktop::open_url("https://prismlauncher.org/");
+                },
+            ))
+            .child(ui::tool_button(
+                "account",
+                &crate::i18n::tr("Accounts"),
+                theme,
+                move |_window, cx| {
+                    accounts.update(cx, |this, cx| {
                         ui::open_accounts(this.data_root.clone(), this.theme, cx);
-                    })),
-            )
+                    });
+                },
+            ))
             .into_any_element()
     }
 
     /// The vertical tool bar on the right, acting on the selected instance.
     fn instance_tool_bar(&mut self, has_instance: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        use crate::menu::MenuAction;
-        let buttons: Vec<(&str, &str, MenuAction)> = vec![
-            ("rename-instance", "Rename", MenuAction::Rename),
-            ("launch-instance", "Launch", MenuAction::Launch),
-            ("kill-instance", "Kill", MenuAction::Kill),
-            ("edit-instance", "Edit...", MenuAction::Edit),
-            ("change-group", "Change Group...", MenuAction::ChangeGroup),
-            ("view-folder", "Folder", MenuAction::ViewInstanceFolder),
-            ("export-instance", "Export...", MenuAction::Export),
-            ("copy-instance", "Copy...", MenuAction::Copy),
-            ("delete-instance", "Delete", MenuAction::Delete),
+        let entity = cx.entity();
+
+        // The entries of the bar, in Prism's order.
+        let entries: Vec<(&str, &str, crate::menu::MenuAction)> = vec![
+            ("rename", "Rename", crate::menu::MenuAction::Rename),
+            ("launch", "Launch", crate::menu::MenuAction::Launch),
+            ("kill", "Kill", crate::menu::MenuAction::Kill),
+            ("edit", "Edit...", crate::menu::MenuAction::Edit),
             (
-                "create-shortcut",
+                "group",
+                "Change Group...",
+                crate::menu::MenuAction::ChangeGroup,
+            ),
+            (
+                "folder",
+                "Folder",
+                crate::menu::MenuAction::ViewInstanceFolder,
+            ),
+            ("export", "Export...", crate::menu::MenuAction::Export),
+            ("copy", "Copy...", crate::menu::MenuAction::Copy),
+            ("delete", "Delete", crate::menu::MenuAction::Delete),
+            (
+                "shortcut",
                 "Create Shortcut",
-                MenuAction::CreateShortcut,
+                crate::menu::MenuAction::CreateShortcut,
             ),
         ];
 
         let mut items: Vec<AnyElement> = Vec::new();
-        for (index, (id, label, action)) in buttons.into_iter().enumerate() {
-            // Prism groups the buttons with separators.
+        for (index, (icon_name, label, action)) in entries.into_iter().enumerate() {
+            // Prism separates the groups of the bar.
             if index == 2 || index == 4 {
-                items.push(
-                    div()
-                        .h(px(6.0))
-                        .border_b_1()
-                        .border_color(rgb(theme.border))
-                        .into_any_element(),
-                );
+                items.push(ui::tool_separator(theme));
             }
-            let entity = cx.entity();
-            items.push(
-                div()
-                    .id(id)
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .text_sm()
-                    .text_color(if has_instance {
-                        rgb(theme.text)
-                    } else {
-                        rgb(theme.subtext)
-                    })
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    .child(crate::i18n::tr(label))
-                    .on_click(move |_, _, cx| {
-                        if !has_instance {
-                            return;
-                        }
-                        entity.update(cx, move |this, cx| this.run_action(action, cx));
-                    })
-                    .into_any_element(),
-            );
+            let label = label.to_string();
+            if has_instance {
+                let action = action;
+                let entity = entity.clone();
+                items.push(ui::tool_button(
+                    icon_name,
+                    &label,
+                    theme,
+                    move |_window, cx| {
+                        entity.update(cx, |this, cx| this.run_action(action, cx));
+                    },
+                ));
+            } else {
+                items.push(ui::tool_button_disabled(&label, theme));
+            }
         }
 
         div()
@@ -900,8 +858,8 @@ impl MainWindow {
             .flex_shrink_0()
             .flex()
             .flex_col()
-            .gap_1()
-            .p_2()
+            .gap_0()
+            .py_1()
             .bg(rgb(theme.surface))
             .border_l_1()
             .border_color(rgb(theme.border))
@@ -1090,9 +1048,13 @@ fn tool_bar_separator(theme: Theme) -> AnyElement {
         .into_any_element()
 }
 
-/// The header of a group of instances: bold text with a line underneath.
+/// The header of a group of instances.
+///
+/// Prism draws a bold name with a small triangle in front of it and a thin
+/// line to the right of the name.
 fn group_header(title: &str, folded: bool, theme: Theme, entity: Entity<MainWindow>) -> AnyElement {
     let title = title.to_string();
+    let name = title.clone();
     div()
         .id(gpui::ElementId::Name(SharedString::from(format!(
             "group-header-{title}"
@@ -1100,29 +1062,35 @@ fn group_header(title: &str, folded: bool, theme: Theme, entity: Entity<MainWind
         .flex()
         .items_center()
         .gap_2()
-        .pb_1()
-        .border_b_2()
-        .border_color(rgb(theme.border))
+        .h(px(18.0))
         .cursor_pointer()
         .child(
             div()
-                .text_sm()
+                .text_xs()
                 .text_color(rgb(theme.text))
                 .child(if folded { "▶" } else { "▼" }),
         )
         .child(
             div()
                 .text_sm()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .font_weight(gpui::FontWeight::BOLD)
                 .text_color(rgb(theme.text))
                 .child(title.clone()),
         )
+        // The thin line to the right of the name.
+        .child(
+            div()
+                .flex_1()
+                .h(px(1.0))
+                .mt(px(9.0))
+                .bg(theme.rgba(theme.text, 0.05)),
+        )
         .on_click(move |_, _, cx| {
             entity.update(cx, |this, cx| {
-                if let Some(index) = this.collapsed.iter().position(|g| *g == title) {
+                if let Some(index) = this.collapsed.iter().position(|g| *g == name) {
                     this.collapsed.remove(index);
                 } else {
-                    this.collapsed.push(title.clone());
+                    this.collapsed.push(name.clone());
                 }
                 cx.notify();
             });
@@ -1144,34 +1112,42 @@ fn instance_tile(
     let open_entity = entity.clone();
     let launch_row = row.clone();
 
-    // The tooltip shows the instance folder and how long it was played.
-    let mut tooltip = row.dir.display().to_string();
-    if row.time_played > 0 {
-        let hours = row.time_played / 3600;
-        let minutes = (row.time_played % 3600) / 60;
-        tooltip.push_str(&format!("\nplayed for {hours}h {minutes}m"));
-    }
-
+    // The icon of the instance, or the placeholder Prism shows without one.
     let icon: AnyElement = match row.icon.clone() {
         Some(image) => gpui::img(image)
             .w(px(crate::theme::metrics::TILE_ICON))
             .h(px(crate::theme::metrics::TILE_ICON))
             .into_any_element(),
-        None => div()
-            .w(px(crate::theme::metrics::TILE_ICON))
-            .h(px(crate::theme::metrics::TILE_ICON))
-            .rounded_md()
-            .border_2()
-            .border_color(rgb(theme.border))
-            .bg(rgb(theme.alternate))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_lg()
-            .text_color(rgb(theme.subtext))
-            .child("?")
-            .into_any_element(),
+        None => match crate::icons::icon("instance", theme.text) {
+            Some(image) => gpui::img(image)
+                .w(px(crate::theme::metrics::TILE_ICON))
+                .h(px(crate::theme::metrics::TILE_ICON))
+                .into_any_element(),
+            None => div()
+                .w(px(crate::theme::metrics::TILE_ICON))
+                .h(px(crate::theme::metrics::TILE_ICON))
+                .into_any_element(),
+        },
     };
+
+    // The band with the name: filled with the window colour, or with the
+    // highlight colour when the instance is selected.
+    let band = div()
+        .w(px(crate::theme::metrics::TILE_WIDTH - 4.0))
+        .px_1()
+        .text_sm()
+        .text_center()
+        .text_color(if selected {
+            rgb(theme.on_accent)
+        } else {
+            rgb(theme.text)
+        })
+        .bg(if selected {
+            rgb(theme.accent)
+        } else {
+            theme.rgba(theme.background, 160.0 / 255.0)
+        })
+        .child(name.clone());
 
     div()
         .id(gpui::ElementId::Name(SharedString::from(format!(
@@ -1181,49 +1157,16 @@ fn instance_tile(
         .flex()
         .flex_col()
         .items_center()
-        .gap_1()
-        .py_1()
         .cursor_pointer()
-        .hover(|style| style.bg(rgb(theme.alternate)))
         .child(icon)
-        .child(
-            div()
-                .id(gpui::ElementId::Name(SharedString::from(format!(
-                    "tile-name-{name}"
-                ))))
-                .w(px(crate::theme::metrics::TILE_WIDTH - 6.0))
-                .text_sm()
-                .text_center()
-                .rounded_md()
-                .bg(if selected {
-                    rgb(theme.accent)
-                } else {
-                    rgb(theme.background)
-                })
-                .text_color(if selected {
-                    rgb(theme.on_accent)
-                } else {
-                    rgb(theme.text)
-                })
-                .child(name.clone()),
-        )
-        .tooltip({
-            let tooltip = tooltip.clone();
-            move |_window: &mut Window, cx: &mut gpui::App| {
-                let view = cx.new(|_cx| TooltipView {
-                    text: tooltip.clone(),
-                    theme,
-                });
-                AnyView::from(view)
-            }
-        })
+        .child(div().h(px(5.0)))
+        .child(band)
         .on_mouse_down(
             gpui::MouseButton::Left,
             move |event: &gpui::MouseDownEvent, _window: &mut Window, cx: &mut gpui::App| {
                 if event.click_count >= 2 {
                     // A double click runs the instance, or opens its window
-                    // when "Edit instance on double-click" is on — the same
-                    // choice Prism makes.
+                    // when "Edit instance on double-click" is on.
                     let launch_row = launch_row.clone();
                     let dir = dir.clone();
                     let data_root = data_root.clone();
@@ -1236,7 +1179,6 @@ fn instance_tile(
                         }
                     });
                 } else {
-                    // A single click selects the instance.
                     open_entity.update(cx, |main, cx| {
                         main.select_by_name(&name, cx);
                     });

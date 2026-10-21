@@ -119,4 +119,18 @@ impl Theme {
     pub fn rgb(&self, color: u32) -> Rgba {
         gpui::rgb(color)
     }
+
+    /// A colour with an alpha channel.
+    ///
+    /// Qt draws the unselected entries of the instance grid with the window
+    /// colour at 160/255 alpha, so the same is needed here.
+    pub fn rgba(&self, color: u32, alpha: f32) -> Rgba {
+        let [r, g, b, _] = color.to_be_bytes();
+        Rgba {
+            r: r as f32 / 255.0,
+            g: g as f32 / 255.0,
+            b: b as f32 / 255.0,
+            a: alpha,
+        }
+    }
 }

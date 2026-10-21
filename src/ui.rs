@@ -59,6 +59,22 @@ impl Tab {
             Tab::CrashReports => "Other Logs",
         })
     }
+    /// The icon Prism shows next to the page.
+    fn icon(&self) -> &'static str {
+        match self {
+            Tab::Logs | Tab::CrashReports => "console",
+            Tab::Version => "instance",
+            Tab::Mods => "mod",
+            Tab::ResourcePacks | Tab::TexturePacks => "picture",
+            Tab::DataPacks => "mod",
+            Tab::ShaderPacks => "wand",
+            Tab::Notes => "notes",
+            Tab::Worlds => "world",
+            Tab::Servers => "servers",
+            Tab::Screenshots => "screenshot",
+            Tab::Settings => "settings",
+        }
+    }
     fn subdir(&self) -> &'static [&'static str] {
         match self {
             Tab::Mods => &["mods"],
@@ -695,26 +711,36 @@ impl Render for InstanceView {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .h(px(32.0))
+                    .h(px(26.0))
                     .px_3()
                     .cursor_pointer()
                     .bg(if selected {
                         rgb(theme.accent)
                     } else {
-                        rgb(theme.background)
+                        rgb(theme.base)
                     })
                     .text_color(if selected {
                         rgb(theme.on_accent)
                     } else {
                         rgb(theme.text)
                     })
-                    .hover(|style| style.bg(rgb(theme.alternate)))
-                    // The 24 pixel page icon Prism shows.
-                    .child(div().w(px(24.)).h(px(24.)).rounded_md().bg(if selected {
-                        rgb(theme.on_accent)
-                    } else {
-                        rgb(theme.alternate)
-                    }))
+                    .hover(|style| style.bg(theme.rgba(theme.accent, 0.25)))
+                    // The page icon Prism shows next to the name.
+                    .child(
+                        match crate::icons::icon(
+                            t.icon(),
+                            if selected {
+                                theme.on_accent
+                            } else {
+                                theme.text
+                            },
+                        ) {
+                            Some(image) => {
+                                gpui::img(image).w(px(16.)).h(px(16.)).into_any_element()
+                            }
+                            None => div().w(px(16.)).h(px(16.)).into_any_element(),
+                        },
+                    )
                     .child(div().text_sm().child(t.label()))
                     .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                         this.tab = t2;
@@ -906,11 +932,8 @@ impl Render for InstanceView {
                                     .id("entry-open-folder")
                                     .px_3()
                                     .py_1()
-                                    .rounded_md()
                                     .cursor_pointer()
-                                    .bg(rgb(theme.surface))
-                                    .border_1()
-                                    .border_color(rgb(theme.border))
+                                    .text_color(rgb(theme.text))
                                     .child(crate::i18n::tr("Open folder"))
                                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                                         this.open_selected_entry(cx)
@@ -921,11 +944,8 @@ impl Render for InstanceView {
                                     .id("entry-rename")
                                     .px_3()
                                     .py_1()
-                                    .rounded_md()
                                     .cursor_pointer()
-                                    .bg(rgb(theme.surface))
-                                    .border_1()
-                                    .border_color(rgb(theme.border))
+                                    .text_color(rgb(theme.text))
                                     .child(crate::i18n::tr("Rename"))
                                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                                         this.rename_selected_world(cx)
@@ -936,11 +956,8 @@ impl Render for InstanceView {
                                     .id("entry-icon")
                                     .px_3()
                                     .py_1()
-                                    .rounded_md()
                                     .cursor_pointer()
-                                    .bg(rgb(theme.surface))
-                                    .border_1()
-                                    .border_color(rgb(theme.border))
+                                    .text_color(rgb(theme.text))
                                     .child(crate::i18n::tr("Icon"))
                                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                                         this.choose_icon(cx)
@@ -951,32 +968,22 @@ impl Render for InstanceView {
                                     .id("entry-delete")
                                     .px_3()
                                     .py_1()
-                                    .rounded_md()
                                     .cursor_pointer()
-                                    .bg(rgb(theme.surface))
-                                    .border_1()
-                                    .border_color(rgb(theme.border))
+                                    .text_color(rgb(theme.text))
                                     .child(crate::i18n::tr("Delete"))
                                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                                         this.delete_selected_entry(cx)
                                     })),
                             ),
                     )
-                    .child(
-                        div()
-                            .id("instance-help")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .child(crate::i18n::tr("Help"))
-                            .on_click(cx.listener(move |_, _, _, _cx| {
-                                let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
-                            })),
-                    )
+                    .child(crate::ui::tool_button(
+                        "help",
+                        &crate::i18n::tr("Help"),
+                        theme,
+                        move |_window, _cx| {
+                            let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
+                        },
+                    ))
                     .child(
                         div()
                             .ml_auto()
@@ -989,10 +996,8 @@ impl Render for InstanceView {
                             .id("instance-launch")
                             .px_3()
                             .py_1()
-                            .rounded_md()
                             .cursor_pointer()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(theme.on_accent))
+                            .text_color(rgb(theme.text))
                             .child(crate::i18n::tr("Launch"))
                             .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                                 match crate::java::ensure_for_instance(&this.data_root, &this.dir) {
@@ -1028,11 +1033,8 @@ impl Render for InstanceView {
                             .id("instance-restart")
                             .px_3()
                             .py_1()
-                            .rounded_md()
                             .cursor_pointer()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
+                            .text_color(rgb(theme.text))
                             .child(crate::i18n::tr("Restart")),
                     )
                     .child(
@@ -1040,11 +1042,8 @@ impl Render for InstanceView {
                             .id("instance-kill")
                             .px_3()
                             .py_1()
-                            .rounded_md()
                             .cursor_pointer()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
+                            .text_color(rgb(theme.text))
                             .child(crate::i18n::tr("Kill")),
                     )
                     .child(
@@ -1052,11 +1051,8 @@ impl Render for InstanceView {
                             .id("instance-close")
                             .px_3()
                             .py_1()
-                            .rounded_md()
                             .cursor_pointer()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
+                            .text_color(rgb(theme.text))
                             .child(crate::i18n::tr("Close"))
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.quit();
@@ -1962,20 +1958,20 @@ impl Render for SettingsView {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .h(px(32.0))
+                    .h(px(26.0))
                     .px_3()
                     .cursor_pointer()
                     .bg(if selected {
                         rgb(theme.accent)
                     } else {
-                        rgb(theme.background)
+                        rgb(theme.base)
                     })
                     .text_color(if selected {
                         rgb(theme.on_accent)
                     } else {
                         rgb(theme.text)
                     })
-                    .hover(|style| style.bg(rgb(theme.alternate)))
+                    .hover(|style| style.bg(theme.rgba(theme.accent, 0.25)))
                     .child(div().w(px(24.)).h(px(24.)).rounded_md().bg(if selected {
                         rgb(theme.on_accent)
                     } else {
@@ -2171,21 +2167,14 @@ impl Render for SettingsView {
                     .bg(rgb(theme.surface))
                     .border_t_1()
                     .border_color(rgb(theme.border))
-                    .child(
-                        div()
-                            .id("settings-help")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .child(crate::i18n::tr("Help"))
-                            .on_click(cx.listener(move |_, _, _, _cx| {
-                                let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
-                            })),
-                    )
+                    .child(crate::ui::tool_button(
+                        "help",
+                        &crate::i18n::tr("Help"),
+                        theme,
+                        move |_window, _cx| {
+                            let _ = crate::desktop::open_url("https://prismlauncher.org/wiki/");
+                        },
+                    ))
                     .child(
                         div()
                             .ml_auto()
@@ -2198,10 +2187,8 @@ impl Render for SettingsView {
                             .id("settings-ok")
                             .px_3()
                             .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
+                            .text_color(rgb(theme.text))
                             .child(crate::i18n::tr("OK"))
                             .on_click(cx.listener(|this: &mut Self, _, _, cx| this.save(cx))),
                     )
@@ -2210,11 +2197,8 @@ impl Render for SettingsView {
                             .id("settings-cancel")
                             .px_3()
                             .py_1()
-                            .rounded_md()
                             .cursor_pointer()
-                            .bg(rgb(theme.surface))
-                            .border_1()
-                            .border_color(rgb(theme.border))
+                            .text_color(rgb(theme.text))
                             .child(crate::i18n::tr("Cancel"))
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.quit();
@@ -2246,24 +2230,13 @@ fn settings_row(
                 .id(gpui::ElementId::Name(SharedString::from(format!(
                     "bool-{key}"
                 ))))
-                .px_3()
-                .py_1()
-                .w(px(80.))
-                .rounded_md()
+                .w(px(20.))
+                .h(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
                 .cursor_pointer()
-                .bg(if on {
-                    rgb(theme.accent)
-                } else {
-                    rgb(theme.surface)
-                })
-                .text_color(if on {
-                    rgb(theme.on_accent)
-                } else {
-                    rgb(theme.text)
-                })
-                .border_1()
-                .border_color(rgb(theme.border))
-                .child(if on { "On" } else { "Off" })
+                .child(crate::ui::checkbox(on, theme))
                 .on_click(move |_, _, cx| {
                     e.update(cx, |this, cx| this.toggle_bool(key, cx));
                 })
@@ -4280,6 +4253,240 @@ pub fn open_rename_world(
                 )
             })
         },
+    )
+    .ok()
+}
+
+/// A tool button, the way Qt's Fusion style draws it: an icon and a text
+/// next to each other, flat, with a background only while the mouse hovers.
+pub fn tool_button(
+    icon_name: &str,
+    label: &str,
+    theme: Theme,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let image = crate::icons::icon(icon_name, theme.text);
+    div()
+        .id(gpui::ElementId::Name(SharedString::from(format!(
+            "tool-{icon_name}-{label}"
+        ))))
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap_1()
+        .h(px(24.0))
+        .px_2()
+        .cursor_pointer()
+        .text_color(rgb(theme.text))
+        .hover(|style| style.bg(theme.rgba(theme.accent, 0.25)))
+        .child(if let Some(image) = image {
+            gpui::img(image).w(px(16.)).h(px(16.)).into_any_element()
+        } else {
+            div().w(px(16.)).h(px(16.)).into_any_element()
+        })
+        .child(div().text_sm().child(label.to_string()))
+        .on_click(move |_, window, cx| on_click(window, cx))
+        .into_any_element()
+}
+
+/// A check box, the way Qt's Fusion style draws it.
+pub fn checkbox(checked: bool, theme: Theme) -> AnyElement {
+    let mark = if checked {
+        crate::icons::icon("check", theme.on_accent)
+    } else {
+        None
+    };
+    div()
+        .w(px(14.))
+        .h(px(14.))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_sm()
+        .border_1()
+        .border_color(rgb(if checked { theme.accent } else { theme.border }))
+        .bg(if checked {
+            rgb(theme.accent)
+        } else {
+            rgb(theme.base)
+        })
+        .child(if let Some(image) = mark {
+            gpui::img(image).w(px(12.)).h(px(12.)).into_any_element()
+        } else {
+            div().into_any_element()
+        })
+        .into_any_element()
+}
+
+/// A tool button that is drawn dimmed, like a disabled Qt action.
+pub fn tool_button_disabled(label: &str, theme: Theme) -> AnyElement {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap_1()
+        .h(px(24.0))
+        .px_2()
+        .text_color(rgb(theme.subtext))
+        .child(div().w(px(16.)).h(px(16.)).into_any_element())
+        .child(div().text_sm().child(label.to_string()))
+        .into_any_element()
+}
+
+/// A separator between the groups of a tool bar, as Qt draws them.
+pub fn tool_separator(theme: Theme) -> AnyElement {
+    div()
+        .w(px(9.0))
+        .h(px(18.0))
+        .mx_1()
+        .border_l_1()
+        .border_color(rgb(theme.border))
+        .into_any_element()
+}
+
+/// The background of a panel that lists things, using the base colour.
+pub fn panel(theme: Theme) -> AnyElement {
+    div()
+        .flex_1()
+        .flex()
+        .flex_col()
+        .bg(rgb(theme.base))
+        .overflow_hidden()
+        .into_any_element()
+}
+
+// ---- Folders window ----
+
+/// The folders Prism offers under the "Folders" button.
+pub struct FoldersView {
+    data_root: PathBuf,
+    theme: Theme,
+}
+
+impl FoldersView {
+    pub fn new(data_root: PathBuf, theme: Theme, _cx: &mut Context<Self>) -> Self {
+        Self { data_root, theme }
+    }
+}
+
+impl Render for FoldersView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        // The folders Prism shows, in the order of its menu.
+        let folders: Vec<(&str, String)> = vec![
+            (
+                "View Launcher Root Folder",
+                self.data_root.display().to_string(),
+            ),
+            (
+                "View Logs Folder",
+                self.data_root.join("logs").display().to_string(),
+            ),
+            (
+                "View Icons Folder",
+                self.data_root.join("icons").display().to_string(),
+            ),
+            (
+                "View Central Mods Folder",
+                self.data_root.join("mods").display().to_string(),
+            ),
+            (
+                "View Java Folder",
+                self.data_root.join("java").display().to_string(),
+            ),
+            (
+                "View Skins Folder",
+                self.data_root.join("skins").display().to_string(),
+            ),
+            (
+                "View Widget Theme Folder",
+                self.data_root.join("themes").display().to_string(),
+            ),
+            (
+                "View Icon Theme Folder",
+                self.data_root.join("icons").display().to_string(),
+            ),
+        ];
+
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(rgb(theme.background))
+            .text_color(rgb(theme.text))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(24.0))
+                    .px_3()
+                    .bg(rgb(theme.surface))
+                    .border_b_1()
+                    .border_color(rgb(theme.border))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(crate::i18n::tr("Folders")),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .bg(rgb(theme.base))
+                    .children(folders.into_iter().map(|(label, path)| {
+                        div()
+                            .id(gpui::ElementId::Name(SharedString::from(format!(
+                                "folder-{label}"
+                            ))))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .h(px(26.0))
+                            .px_3()
+                            .cursor_pointer()
+                            .hover(|style| style.bg(theme.rgba(theme.accent, 0.25)))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(theme.text))
+                                    .child(crate::i18n::tr(label)),
+                            )
+                            .child(
+                                div()
+                                    .ml_auto()
+                                    .text_xs()
+                                    .text_color(rgb(theme.subtext))
+                                    .child(path.clone()),
+                            )
+                            .on_click(move |_, _, _cx| {
+                                let _ = crate::desktop::open_path(std::path::Path::new(&path));
+                            })
+                    })),
+            )
+    }
+}
+
+/// Open the window with the shared folders.
+pub fn open_folders(
+    data_root: PathBuf,
+    theme: Theme,
+    cx: &mut App,
+) -> Option<gpui::WindowHandle<FoldersView>> {
+    let bounds = Bounds::centered(None, size(px(460.), px(320.)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Folders — Prism Launcher".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|cx| FoldersView::new(data_root.clone(), theme, cx)),
     )
     .ok()
 }
