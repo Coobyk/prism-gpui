@@ -3479,6 +3479,10 @@ impl Render for SkinView {
                     .id("skin-model")
                     .px_3()
                     .py_1()
+                    .bg(rgb(theme.surface))
+                    .cursor_pointer()
+                    .px_3()
+                    .py_1()
                     .rounded_md()
                     .bg(rgb(theme.surface))
                     .border_1()
@@ -3496,6 +3500,19 @@ impl Render for SkinView {
             .child(
                 div()
                     .id("skin-reset")
+                    .px_3()
+                    .py_1()
+                    .bg(if self.pending_reset {
+                        rgb(0x9e3b3b)
+                    } else {
+                        rgb(theme.surface)
+                    })
+                    .text_color(if self.pending_reset {
+                        rgb(0xffffff)
+                    } else {
+                        rgb(theme.text)
+                    })
+                    .cursor_pointer()
                     .px_3()
                     .py_1()
                     .rounded_md()
@@ -3539,6 +3556,10 @@ impl Render for SkinView {
             .child(
                 div()
                     .id("skin-refresh")
+                    .px_3()
+                    .py_1()
+                    .bg(rgb(theme.surface))
+                    .cursor_pointer()
                     .px_3()
                     .py_1()
                     .rounded_md()
