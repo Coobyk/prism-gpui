@@ -142,7 +142,7 @@ instance directory format.
 
 ## 8. Implementation status
 
-The `prism-gpui` binary implements the following today (110 unit tests green;
+The `prism-gpui` binary implements the following today (114 unit tests green;
 `cargo test` passes on the instabox build box as well).
 
 ### Data / core
