@@ -3481,13 +3481,6 @@ impl Render for SkinView {
                     .py_1()
                     .bg(rgb(theme.surface))
                     .cursor_pointer()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(rgb(theme.surface))
-                    .border_1()
-                    .border_color(rgb(theme.border))
-                    .cursor_pointer()
                     .child(variant_label)
                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                         this.variant = match this.variant {
@@ -3512,22 +3505,6 @@ impl Render for SkinView {
                     } else {
                         rgb(theme.text)
                     })
-                    .cursor_pointer()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(if self.pending_reset {
-                        rgb(0x9e3b3b)
-                    } else {
-                        rgb(theme.surface)
-                    })
-                    .text_color(if self.pending_reset {
-                        rgb(0xffffff)
-                    } else {
-                        rgb(theme.text)
-                    })
-                    .border_1()
-                    .border_color(rgb(theme.border))
                     .cursor_pointer()
                     .child(if self.pending_reset {
                         "Really reset?"
@@ -3559,13 +3536,6 @@ impl Render for SkinView {
                     .px_3()
                     .py_1()
                     .bg(rgb(theme.surface))
-                    .cursor_pointer()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(rgb(theme.surface))
-                    .border_1()
-                    .border_color(rgb(theme.border))
                     .cursor_pointer()
                     .child(crate::i18n::tr("Refresh"))
                     .on_click(cx.listener(|this: &mut Self, _, _, cx| {
