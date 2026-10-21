@@ -202,10 +202,20 @@ The `prism-gpui` binary implements the following today (110 unit tests green;
   instance names and component metadata.
 
 ### UI (GPUI)
-The layout follows Prism's own: a menu bar, a tool bar, the instance grid and
-a tool bar on the right in the main window; a page list on the left with the
-page content on the right in the instance, settings and new-instance windows.
-The palette is Prism's own dark and bright theme.
+The layout and the drawing follow Prism's own Qt interface: a menu bar, a
+tool bar, the instance grid and a tool bar on the right in the main window; a
+page list on the left with the page content on the right in the instance,
+settings and new-instance windows. The palette is Prism's own dark and bright
+theme, the tool buttons are flat with an icon next to the text like Qt draws
+them, the instance tiles sit on the base colour with the name in a band that
+is filled with the highlight colour when the instance is selected, the group
+headers have the line Prism draws next to the name, the page lists are flat
+rows and the boolean settings are check boxes.
+
+`src/icons.rs` holds the small icon set (16 pixels, drawn as strokes) that
+the tool bars, the tiles and the pages use. `PRISM_DEBUG_MENU=1` opens the
+file menu when the window comes up, which helps to look at the menus on a
+headless machine.
 
 - Main window: menu bar (File, Edit, View, Folders, Accounts, Help) with the
   same drop-down entries Prism registers, a tool bar (Add Instance, Folders,
@@ -232,6 +242,8 @@ The palette is Prism's own dark and bright theme.
   middle, the description of the selected entry on the right and the target,
   the status and the Install button at the bottom.
 - Accounts window: Microsoft sign-in, offline accounts, switch and remove.
+- A right click on an instance opens the entries Prism shows in its context
+  menu.
 - Skin manager: the account's Mojang skins, upload (classic/slim), activate,
   reset, and a local skin library.
 - Console window streaming live launch output, with a Copy and a Close
