@@ -43,7 +43,7 @@ use crate::settings::GlobalSettings;
 use crate::theme::Theme;
 use dirs::data_dir;
 use gpui::{
-    AnyElement, AnyView, App, Application, Bounds, Context, Entity, ExternalPaths, FocusHandle,
+    AnyElement, App, Application, Bounds, Context, Entity, ExternalPaths, FocusHandle,
     KeyDownEvent, SharedString, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb,
     size,
 };
@@ -837,7 +837,6 @@ impl MainWindow {
             }
             let label = label.to_string();
             if has_instance {
-                let action = action;
                 let entity = entity.clone();
                 items.push(ui::tool_button(
                     icon_name,

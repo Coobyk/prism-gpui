@@ -73,8 +73,8 @@ pub fn svg(name: &str, colour: u32) -> Option<Vec<u8>> {
 
 /// The rendered icon, cached per name and colour.
 pub fn icon(name: &str, colour: u32) -> Option<std::sync::Arc<Image>> {
-    static CACHE: OnceLock<Mutex<HashMap<(String, u32), Option<std::sync::Arc<Image>>>>> =
-        OnceLock::new();
+    type Cache = HashMap<(String, u32), Option<std::sync::Arc<Image>>>;
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let key = (name.to_string(), colour);
     if let Some(found) = cache.lock().unwrap().get(&key) {
