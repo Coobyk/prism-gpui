@@ -51,18 +51,22 @@ jobs:
           mkdir -p dist
           case "${{ matrix.os }}" in
             ubuntu-latest)
-              bin=target/${{ matrix.target }}/release/prism-gpui
+              dir=target/${{ matrix.target }}/release
+              cp README.md "$dir/README.md"
               tar -czf dist/prism-gpui-${{ matrix.name }}-x86_64.tar.gz \
-                -C "$(dirname "$bin")" "$(basename "$bin")" README.md
+                -C "$dir" prism-gpui README.md
               ;;
             windows-latest)
-              bin=target/${{ matrix.target }}/release/prism-gpui.exe
-              7z a dist/prism-gpui-${{ matrix.name }}-x86_64.zip "$bin" README.md
+              dir=target/${{ matrix.target }}/release
+              cp README.md "$dir/README.md"
+              7z a dist/prism-gpui-${{ matrix.name }}-x86_64.zip \
+                "$dir/prism-gpui.exe" "$dir/README.md"
               ;;
             macos-latest)
-              bin=target/${{ matrix.target }}/release/prism-gpui
+              dir=target/${{ matrix.target }}/release
+              cp README.md "$dir/README.md"
               tar -czf dist/prism-gpui-${{ matrix.name }}-aarch64.tar.gz \
-                -C "$(dirname "$bin")" "$(basename "$bin")" README.md
+                -C "$dir" prism-gpui README.md
               ;;
           esac
           ls -la dist
