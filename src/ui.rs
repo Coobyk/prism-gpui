@@ -4595,6 +4595,7 @@ impl AccountsView {
 impl Render for AccountsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        let entity = cx.entity();
         let active = self.active.clone();
         let rows: Vec<AnyElement> = self
             .accounts
@@ -4698,20 +4699,14 @@ impl Render for AccountsView {
                     .border_b_1()
                     .border_color(rgb(theme.border))
                     .child(div().text_lg().child(crate::i18n::tr("Accounts")))
-                    .child(
-                        div()
-                            .id("account-signin")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(theme.on_accent))
-                            .cursor_pointer()
-                            .child(crate::i18n::tr("Add Microsoft account"))
-                            .on_click(cx.listener(|this: &mut Self, _, _, cx| {
-                                this.sign_in(cx);
-                            })),
-                    )
+                    .child(crate::ui::tool_button(
+                        "account",
+                        &crate::i18n::tr("Add Microsoft account"),
+                        theme,
+                        move |_window, cx| {
+                            entity.update(cx, |this, cx| this.sign_in(cx));
+                        },
+                    ))
                     .child(
                         div()
                             .ml_auto()

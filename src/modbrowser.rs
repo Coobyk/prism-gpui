@@ -550,38 +550,35 @@ impl Render for ModBrowser {
                     .bg(rgb(theme.surface))
                     .border_b_1()
                     .border_color(rgb(theme.border))
-                    .child(
+                    .child({
+                        let filters = self.filters_visible;
                         div()
                             .id("toggle-filters")
-                            .px_3()
-                            .py_1()
-                            .rounded_md()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .h(px(24.0))
+                            .px_2()
                             .cursor_pointer()
-                            .bg(if self.filters_visible {
-                                rgb(theme.accent)
+                            .text_color(rgb(theme.text))
+                            .bg(if filters {
+                                theme.rgba(theme.accent, 0.25)
                             } else {
                                 rgb(theme.surface)
                             })
-                            .text_color(if self.filters_visible {
-                                rgb(theme.on_accent)
-                            } else {
-                                rgb(theme.text)
-                            })
-                            .border_1()
-                            .border_color(rgb(theme.border))
-                            .child("Filters")
+                            .child(crate::i18n::tr("Filters"))
                             .on_click(cx.listener(|this: &mut Self, _, _, cx| {
                                 this.filters_visible = !this.filters_visible;
                                 cx.notify();
-                            })),
-                    )
+                            }))
+                    })
                     .child(div().flex_1().child(self.input.clone()))
                     .child(
                         div()
                             .id("search-btn")
                             .px_3()
                             .py_1()
-                            .rounded_md()
+                            .rounded_sm()
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
@@ -661,7 +658,7 @@ impl Render for ModBrowser {
                             .id("install-selected")
                             .px_3()
                             .py_1()
-                            .rounded_md()
+                            .rounded_sm()
                             .bg(rgb(theme.accent))
                             .text_color(rgb(theme.on_accent))
                             .cursor_pointer()
