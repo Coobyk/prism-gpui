@@ -8,7 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+# The warnings are only denied for this crate: `RUSTFLAGS` would also turn the
+# warnings of the vendored dependencies into errors.
 
 jobs:
   check:
@@ -27,11 +28,11 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Format
-        run: cargo fmt --all -- --check
+        run: cargo fmt -p prism-gpui -- --check
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy -p prism-gpui --all-targets -- -D warnings
       - name: Test
-        run: cargo test --all-targets
+        run: cargo test -p prism-gpui --all-targets
 
   build:
     name: Build on ${{ matrix.os }}
@@ -52,6 +53,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release
+        run: cargo build -p prism-gpui --release
       - name: Test
-        run: cargo test --release
+        run: cargo test -p prism-gpui --release

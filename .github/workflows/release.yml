@@ -43,7 +43,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build -p prism-gpui --release --target ${{ matrix.target }}
       - name: Package
         shell: bash
         run: |
