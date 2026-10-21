@@ -231,6 +231,15 @@ headless machine.
   title above the content and Help / Launch / Restart / Kill / Close at the
   bottom. The notes are edited in place and stored in the instance's `notes`
   setting; the Version page lists the components.
+- The pages that list files (Mods, Resource Packs, Data Packs, Texture Packs
+  and Shader Packs) are tables, like Prism's `ExternalResourcesPage`: a header
+  row, one row per file with the columns Enable (a check box), Name, Version,
+  Last Modified, Size and File Name, the description of the selected entry
+  below the table and the search field and the actions (Add File, Remove,
+  Enable, Disable, View Folder) at the bottom. The name and the version of a
+  mod come from its descriptor (`fabric.mod.json`, `quilt.mod.json` or
+  `META-INF/mods.toml`), a file that ends in `.disabled` is shown as
+  disabled.
 - Settings window: the pages Prism has (General, Language, Appearance,
   Minecraft, Java, Services, Tools, Proxy) with Help / OK / Cancel at the
   bottom; enum cycling, native path pickers and masked secrets.
@@ -251,7 +260,9 @@ headless machine.
 - Update check in the toolbar; `self-update --apply` downloads the release and
   replaces the binary (the old one is kept as `<name>.old`).
 - `--gui [instance <name>|settings|accounts|news|skin|browse|new]` opens the
-  launcher and one of the other windows right away.
+  launcher and one of the other windows right away. `--gui instance <name>
+  [page]` opens the instance window on the page with that name (the page
+  names are the ones Prism shows, for example `mods` or `version`).
 - `theme.rs` — Prism's own dark and bright palettes plus the layout metrics
   (menu bar, tool bar, tile size, page list width); `widgets/text_input.rs` —
   reusable GPUI text field that follows the launcher theme and can mask
