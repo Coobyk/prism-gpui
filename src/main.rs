@@ -1088,18 +1088,23 @@ fn group_header(title: &str, folded: bool, theme: Theme, entity: Entity<MainWind
         .flex()
         .items_center()
         .gap_2()
-        .h(px(18.0))
+        .h(px(20.0))
+        .px_2()
+        .py_1()
         .cursor_pointer()
+        .bg(rgb(theme.surface))
+        .border_b_1()
+        .border_color(rgb(theme.border))
         .child(
             div()
                 .text_xs()
-                .text_color(rgb(theme.text))
+                .text_color(rgb(theme.subtext))
                 .child(if folded { "▶" } else { "▼" }),
         )
         .child(
             div()
                 .text_sm()
-                .font_weight(gpui::FontWeight::BOLD)
+                .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(rgb(theme.text))
                 .child(title.clone()),
         )
@@ -1108,9 +1113,10 @@ fn group_header(title: &str, folded: bool, theme: Theme, entity: Entity<MainWind
             div()
                 .flex_1()
                 .h(px(1.0))
-                .mt(px(9.0))
-                .bg(theme.rgba(theme.text, 0.05)),
+                .mt_0p5()
+                .bg(theme.rgba(theme.text, 0.08)),
         )
+        .hover(|style| style.bg(theme.rgba(theme.accent, 0.10)))
         .on_click(move |_, _, cx| {
             entity.update(cx, |this, cx| {
                 if let Some(index) = this.collapsed.iter().position(|g| *g == name) {
@@ -1160,8 +1166,9 @@ fn instance_tile(
     // The band with the name: filled with the window colour, or with the
     // highlight colour when the instance is selected.
     let band = div()
-        .w(px(crate::theme::metrics::TILE_WIDTH - 4.0))
+        .w_full()
         .px_1()
+        .py_0p5()
         .text_sm()
         .text_center()
         .text_color(if selected {
@@ -1176,7 +1183,7 @@ fn instance_tile(
         })
         .child(name.clone());
 
-    div()
+    let tile = div()
         .id(gpui::ElementId::Name(SharedString::from(format!(
             "tile-{name}"
         ))))
@@ -1185,8 +1192,29 @@ fn instance_tile(
         .flex_col()
         .items_center()
         .cursor_pointer()
-        .child(icon)
-        .child(div().h(px(5.0)))
+        .rounded_md()
+        .overflow_hidden()
+        .border_1()
+        .border_color(rgb(theme.border))
+        .bg(if selected {
+            theme.rgba(theme.accent, 0.12)
+        } else {
+            rgb(theme.base)
+        })
+        .hover(|style| {
+            style
+                .bg(theme.rgba(theme.accent, 0.18))
+                .border_color(rgb(theme.accent))
+        });
+
+    let tile = if selected {
+        tile.shadow_lg()
+    } else {
+        tile.shadow_sm()
+    };
+
+    tile.child(icon)
+        .child(div().h(px(6.0)))
         .child(band)
         // A right click opens the context menu, like in Prism.
         .on_mouse_down(

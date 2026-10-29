@@ -4812,8 +4812,12 @@ pub fn tool_button(
         .h(px(24.0))
         .px_2()
         .cursor_pointer()
+        .rounded_md()
+        .border_1()
+        .border_color(rgb(theme.border))
+        .bg(rgb(theme.surface))
         .text_color(rgb(theme.text))
-        .hover(|style| style.bg(theme.rgba(theme.accent, 0.25)))
+        .hover(|style| style.bg(theme.rgba(theme.accent, 0.20)))
         .child(if let Some(image) = image {
             gpui::img(image).w(px(16.)).h(px(16.)).into_any_element()
         } else {
